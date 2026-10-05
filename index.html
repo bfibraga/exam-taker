@@ -1067,6 +1067,8 @@
       t.className = '';
       var idleBar = document.getElementById('exambar-clock');
       if (idleBar) idleBar.textContent = '';
+      var idleLine = document.querySelector('.resume-line:last-of-type');
+      if (idleLine) idleLine.textContent = '';
       lastMark = null;
       return;
     }
@@ -1080,6 +1082,12 @@
 
     var bar = document.getElementById('exambar-clock');
     if (bar) bar.textContent = text;
+
+    // The home resume card shows a countdown too. paintClock runs once a second
+    // while a session exists, so it owns that line. syncExamBar calls
+    // paintClock; this must never call syncExamBar, or the two recurse.
+    var rl = document.querySelector('.resume-line:last-of-type');
+    if (rl) rl.textContent = text + ' remaining';
 
     // Speak only at two thresholds. A live region updated once a second
     // re-announces the whole clock once a second.
@@ -1121,7 +1129,10 @@
       yes: 'Discard'
     }, function () {
       SN.ExamSession.discard();
-      SN.Router.go('home');
+      // run(), not go(): the discard button only exists on home, so setting the
+      // hash to where we already are fires no hashchange and the resume card
+      // would stay on screen over a dead attempt.
+      SN.Router.run();
     });
   }
 
@@ -1172,18 +1183,71 @@
         return '<a href="#/' + n + '">' + n.charAt(0).toUpperCase() + n.slice(1) + '</a>';
       }).join('');
 
+    // label and value are developer-supplied literals; value carries a % from
+    // toFixed, which needs no escaping.
+    function stat(label, value) {
+      return '<div class="stat"><div class="stat-label">' + label +
+        '</div><div class="stat-value">' + value + '</div></div>';
+    }
+
     SN.Router.add('home', function () {
+      // Sorted rather than trusting list[0]: add() unshifts, but the row should
+      // still mean "newest" if the stored order ever drifts.
+      var list = SN.History.all().slice().sort(function (a, b) { return b.at - a.at; });
+      var live = SN.ExamSession.has();
+      var st = live ? SN.ExamSession.get() : null;
+
+      // SN.lastResult is deliberately unused: it is null after a reload, and
+      // home has to be right on a fresh page load.
+      var stats;
+      if (list.length) {
+        var best = list.reduce(function (m, a) { return Math.max(m, a.percent); }, -1);
+        stats = '<div class="stat-row">' +
+          stat('Last', list[0].percent.toFixed(1) + '%') +
+          stat('Best', best.toFixed(1) + '%') +
+          stat('Attempts', String(list.length)) +
+          '</div>';
+      } else {
+        stats = '<p class="hint">No attempts yet. Your scores will appear here.</p>';
+      }
+
+      var resume = '';
+      if (live) {
+        resume = '<div class="card">' +
+          '<h3>Attempt in progress</h3>' +
+          '<p class="resume-line">Question ' + (SN.ExamSession.index() + 1) + ' of ' +
+          st.ids.length + ' &middot; ' + SN.ExamSession.answerCount() + ' answered &middot; ' +
+          SN.ExamSession.flagCount() + ' flagged</p>' +
+          '<p class="resume-line">' + fmtMs(SN.ExamSession.remainingMs()) + ' remaining</p>' +
+          '<div class="row row-end">' +
+          '<button class="btn btn-quiet" id="discard">Discard attempt</button>' +
+          '<button class="btn btn-primary" id="resume">Resume</button>' +
+          '</div></div>';
+      }
+
       SN.UI.render(
-        '<h2>' + SN.UI.escape(SN.bank.exam.title) + '</h2>' +
-        '<div class="card"><p>' + SN.bank.questions.length + ' questions loaded. ' +
-        'Default exam: <strong>' + SN.bank.exam.questionCount + ' questions</strong>, ' +
-        '<strong>' + SN.bank.exam.durationMinutes + ' minutes</strong>, pass at <strong>' +
-        SN.bank.exam.passPercent + '%</strong>.</p>' +
-        '<p><button class="btn btn-primary" id="go-setup">Start</button></p></div>'
+        '<p class="home-title" data-autofocus>' +
+        SN.UI.escape(SN.bank.exam.title) + '</p>' +
+        '<p class="hint">' + SN.bank.exam.questionCount + ' questions &middot; ' +
+        SN.bank.exam.durationMinutes + ' minutes &middot; pass at ' +
+        SN.bank.exam.passPercent + '%</p>' +
+        stats + resume +
+        '<p class="row row-end"><button class="btn btn-primary" id="go-setup">' +
+        'Start a new attempt</button></p>'
       );
+
       document.getElementById('go-setup').addEventListener('click', function () {
         SN.Router.go('setup');
       });
+
+      if (live) {
+        document.getElementById('resume').addEventListener('click', function () {
+          SN.Router.go('exam');
+        });
+        document.getElementById('discard').addEventListener('click', function () {
+          discardAttempt();
+        });
+      }
     });
 
     SN.Router.add('exam', function () {
@@ -1571,6 +1635,7 @@
         '<p class="hint">' + max + ' available. With shuffle off, the first N in file order are used.</p>' +
         '<label for="f-minutes">Minutes</label>' +
         '<input type="number" id="f-minutes" min="1" max="600" value="' + s.durationMinutes + '">' +
+        '<p class="hint" id="pace-hint"></p>' +
         '<label for="f-pass">Pass mark (%)</label>' +
         '<input type="number" id="f-pass" min="1" max="100" value="' + s.passPercent + '">' +
         '<div class="row" style="margin-top:1rem">' +
@@ -1585,6 +1650,22 @@
       document.getElementById('cancel').addEventListener('click', function () {
         SN.Router.go('home');
       });
+
+      // Minutes per question, so the numbers can be judged before committing
+      // rather than discovered during the exam.
+      var count = document.getElementById('f-count');
+      var mins = document.getElementById('f-minutes');
+
+      function paintPace() {
+        var c = parseInt(count.value, 10) || 0;
+        var m = parseInt(mins.value, 10) || 0;
+        document.getElementById('pace-hint').textContent = (c && m)
+          ? (Math.round(m / c * 100) / 100) + ' minutes per question'
+          : '';
+      }
+      count.addEventListener('input', paintPace);
+      mins.addEventListener('input', paintPace);
+      paintPace();
 
       document.getElementById('start').addEventListener('click', function () {
         var settings = {

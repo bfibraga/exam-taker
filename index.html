@@ -955,6 +955,11 @@
       if (!fn) { SN.UI.render('<h2>Not found</h2><p>No view named "' +
         SN.UI.escape(r.name) + '".</p>'); return; }
       fn(r.arg);
+      // Repainted here, not only on the timer tick, so the clock and the exam
+      // bar reflect the route that just rendered without waiting a second.
+      // The typeof guard keeps this working before Task 7 defines syncExamBar.
+      if (typeof syncExamBar === 'function') syncExamBar();
+      paintClock();
       var links = document.querySelectorAll('#nav a');
       for (var i = 0; i < links.length; i++) {
         var on = links[i].getAttribute('href') === '#/' + r.name;
@@ -975,6 +980,52 @@
       current: function () { return current; }
     };
   })();
+
+// ---------------------------------------------------------------- Clock
+
+  function fmtMs(ms) {
+    var s = Math.floor(ms / 1000);
+    var m = Math.floor(s / 60);
+    return m + ':' + String(s % 60).padStart(2, '0');
+  }
+
+  var lastMark = null;
+
+  function paintClock() {
+    if (!SN.ExamSession.has()) {
+      // remainingMs() is Infinity with no session, which formats as
+      // "Infinity:NaN". Nothing is on the clock, so show nothing.
+      var t = document.getElementById('timer');
+      t.hidden = true;
+      t.textContent = '';
+      t.className = '';
+      var idleBar = document.getElementById('exambar-clock');
+      if (idleBar) idleBar.textContent = '';
+      lastMark = null;
+      return;
+    }
+    var ms = SN.ExamSession.remainingMs();
+    var text = fmtMs(ms);
+
+    var el = document.getElementById('timer');
+    el.hidden = SN.Router.current() !== 'exam';
+    el.textContent = text;
+    el.className = ms <= 60000 ? 'urgent' : '';
+
+    var bar = document.getElementById('exambar-clock');
+    if (bar) bar.textContent = text;
+
+    // Speak only at two thresholds. A live region updated once a second
+    // re-announces the whole clock once a second.
+    var secs = Math.floor(ms / 1000);
+    var mark = secs <= 60 ? 60 : (secs <= 300 ? 300 : 0);
+    if (mark && mark !== lastMark) {
+      lastMark = mark;
+      document.getElementById('clock-live').textContent =
+        mark === 60 ? '1 minute remaining' : '5 minutes remaining';
+    }
+    if (!mark) lastMark = null;
+  }
 
   // ----------------------------------------------------------------- boot
 
@@ -1036,22 +1087,8 @@
       }
       SN.UI.clearWarn();
       drawQuestion();
-      SN.ExamSession.startTimer(paintTimer);
     });
 
-    function fmtMs(ms) {
-      var s = Math.floor(ms / 1000);
-      var m = Math.floor(s / 60);
-      return m + ':' + String(s % 60).padStart(2, '0');
-    }
-
-    function paintTimer() {
-      var el = document.getElementById('timer');
-      var ms = SN.ExamSession.remainingMs();
-      el.hidden = false;
-      el.textContent = fmtMs(ms);
-      el.className = ms <= 60000 ? 'urgent' : '';
-    }
 
     function drawQuestion() {
       var st = SN.ExamSession.get();
@@ -1128,7 +1165,7 @@
       });
       document.getElementById('submit').addEventListener('click', confirmSubmit);
 
-      paintTimer();
+      paintClock();
     }
 
     function confirmSubmit() {
@@ -1326,6 +1363,10 @@
     // and the exam bar both know about a live attempt. Timer last, so it starts
     // exactly once. SN.Router.start() renders.
     SN.ExamSession.restore();
+
+    // Started here rather than on the exam route so the clock is honest on every
+    // view, and so an expired deadline auto-submits from any view.
+    if (SN.ExamSession.has()) SN.ExamSession.startTimer(paintClock);
 
     SN.Router.start();
   }).catch(function (err) {

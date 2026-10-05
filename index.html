@@ -360,10 +360,21 @@
 <header>
   <h1 id="title">Exam Runner</h1>
   <nav id="nav"></nav>
-  <span id="timer" aria-live="polite" hidden></span>
+  <div class="header-right">
+    <button id="theme-toggle" class="btn btn-quiet" type="button" aria-label="Switch to dark theme">Dark</button>
+    <span id="timer" role="timer" aria-label="Time remaining" hidden></span>
+  </div>
 </header>
 
 <p id="notice" role="status"></p>
+
+<div id="exambar" hidden>
+  <span id="exambar-text">Attempt in progress</span>
+  <span id="exambar-clock"></span>
+  <button id="exambar-resume" class="btn" type="button">Resume</button>
+</div>
+
+<p id="clock-live" class="sr" aria-live="polite" aria-atomic="true"></p>
 
 <main id="main">
   <p>Loading question bank&hellip;</p>
@@ -442,6 +453,58 @@
       setJSON: function (name, value) { return write(name, JSON.stringify(value)); },
       drop: drop
     };
+  })();
+
+  // ------------------------------------------------------------------ Theme
+
+  SN.Theme = (function () {
+    var KEY = 'theme.v1';
+    var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+
+    function stored() {
+      var v = SN.Store.getJSON(KEY);
+      return (v === 'dark' || v === 'light') ? v : null;
+    }
+
+    function system() { return (mq && mq.matches) ? 'dark' : 'light'; }
+    function current() { return stored() || system(); }
+
+    function apply(v) {
+      var el = document.documentElement;
+      el.setAttribute('data-theme', v);
+      // Keeps form controls and scrollbars on the chosen theme rather than the
+      // system one, which matters when the two disagree.
+      el.style.colorScheme = v;
+    }
+
+    function paint() {
+      var b = document.getElementById('theme-toggle');
+      if (!b) return;
+      var dark = current() === 'dark';
+      b.textContent = dark ? 'Light' : 'Dark';
+      b.setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
+    }
+
+    function onSystemChange(fn) {
+      if (!mq) return;
+      var handler = function () {
+        // An explicit choice is never overridden by an OS change.
+        if (!stored()) { apply(system()); fn(); }
+      };
+      if (typeof mq.addEventListener === 'function') mq.addEventListener('change', handler);
+      else if (typeof mq.addListener === 'function') mq.addListener(handler);
+    }
+
+    function init() { apply(current()); paint(); }
+    function toggle() {
+      var next = current() === 'dark' ? 'light' : 'dark';
+      SN.Store.setJSON(KEY, next);
+      apply(next);
+      paint();
+      return next;
+    }
+
+    return { init: init, toggle: toggle, paint: paint, onSystemChange: onSystemChange };
   })();
 
   // --------------------------------------------------------------- Loader
@@ -931,6 +994,15 @@
     document.getElementById('title').textContent = bank.exam.title;
     document.getElementById('footer-note').textContent =
       bank.questions.length + ' questions in this bank.';
+
+    SN.Theme.init();
+    document.getElementById('theme-toggle').addEventListener('click', function () {
+      SN.Theme.toggle();
+    });
+    SN.Theme.onSystemChange(function () {
+      SN.Theme.paint();
+      if (typeof syncExamBar === 'function') syncExamBar();
+    });
 
     var nav = document.getElementById('nav');
     nav.innerHTML = ['home', 'setup', 'history', 'stats']

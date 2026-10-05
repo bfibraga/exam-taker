@@ -407,8 +407,10 @@
     }
 
     function startTimer(fn) {
-      onTick = fn;
+      // Clear the previous interval first: stopTimer() also nulls onTick, so
+      // assigning onTick before calling it would wipe the callback we just set.
       stopTimer();
+      onTick = fn;
       timerHandle = setInterval(function () {
         if (onTick) onTick();
         if (remainingMs() <= 0) {

@@ -611,12 +611,13 @@
     var current = '';
 
     function parse() {
-      var h = window.location.hash.replace(/^#/, '');
+      // Handles '', '#', '#/', '#/setup', '#/results/expired', and any
+      // trailing-slash or junk variant, always yielding a non-empty name.
+      var h = window.location.hash.replace(/^#\/?/, '');
       var slash = h.indexOf('/');
-      return {
-        name: slash === -1 ? (h || 'home') : h.slice(0, slash),
-        arg: slash === -1 ? null : h.slice(slash + 1)
-      };
+      var name = (slash === -1 ? h : h.slice(0, slash)).trim();
+      var arg = slash === -1 ? null : h.slice(slash + 1);
+      return { name: name || 'home', arg: arg };
     }
 
     function go(name, arg) {

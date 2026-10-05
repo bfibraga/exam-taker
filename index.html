@@ -442,6 +442,111 @@
     };
   })();
 
+  // --------------------------------------------------------------- Scorer
+
+  SN.Scorer = (function () {
+    function setsMatch(a, b) {
+      if (a.length !== b.length) return false;
+      var x = a.slice().sort();
+      var y = b.slice().sort();
+      for (var i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+      return true;
+    }
+
+    function score(state) {
+      var rows = state.ids.map(function (id) {
+        var q = SN.Questions.get(id);
+        var picked = state.picks[id] || [];
+        return {
+          id: id,
+          stem: q.stem,
+          type: q.type,
+          choices: q.choices,
+          picked: picked,
+          correct: q.correct,
+          // Exact set match: order irrelevant, no partial credit, no penalty
+          // for extra selections. This mirrors the real exam.
+          isCorrect: setsMatch(picked, q.correct),
+          flagged: !!state.flags[id]
+        };
+      });
+
+      var correct = rows.filter(function (r) { return r.isCorrect; }).length;
+      var total = rows.length;
+      var percent = total ? (correct / total) * 100 : 0;
+
+      return {
+        rows: rows,
+        correct: correct,
+        incorrect: rows.filter(function (r) { return !r.isCorrect && r.picked.length; }).length,
+        unanswered: rows.filter(function (r) { return r.picked.length === 0; }).length,
+        total: total,
+        percent: percent,
+        at: Date.now()
+      };
+    }
+
+    return { score: score, setsMatch: setsMatch };
+  })();
+
+  // -------------------------------------------------------------- History
+
+  SN.History = (function () {
+    var KEY = 'exam.history.v1';
+    var CAP = 50;
+
+    function all() { return SN.Store.getJSON(KEY) || []; }
+
+    function add(result) {
+      var list = all();
+      list.unshift({
+        at: result.at,
+        total: result.total,
+        correct: result.correct,
+        percent: result.percent,
+        passPercent: result.passPercent,
+        durationMinutes: result.durationMinutes,
+        expired: !!result.expired
+      });
+      while (list.length > CAP) list.pop();
+      SN.Store.setJSON(KEY, list);
+    }
+
+    return { all: all, add: add };
+  })();
+
+  // ---------------------------------------------------------------- Stats
+
+  SN.Stats = (function () {
+    var KEY = 'exam.stats.v1';
+
+    function all() { return SN.Store.getJSON(KEY) || {}; }
+
+    function record(result) {
+      var s = all();
+      result.rows.forEach(function (row) {
+        var e = s[row.id] || { seen: 0, correct: 0 };
+        e.seen++;
+        if (row.isCorrect) e.correct++;
+        s[row.id] = e;
+      });
+      SN.Store.setJSON(KEY, s);
+    }
+
+    function clear() { SN.Store.drop(KEY); }
+
+    function rows() {
+      var s = all();
+      return Object.keys(s).map(function (id) {
+        return { id: id, seen: s[id].seen, correct: s[id].correct };
+      }).sort(function (a, b) {
+        return (a.correct / a.seen) - (b.correct / b.seen);
+      });
+    }
+
+    return { all: all, record: record, clear: clear, rows: rows };
+  })();
+
   // ------------------------------------------------------------------ UI
 
   SN.UI = (function () {
@@ -517,6 +622,7 @@
     return {
       add: function (name, fn) { routes[name] = fn; },
       go: go,
+      run: run,
       start: function () {
         window.addEventListener('hashchange', run);
         run();
@@ -694,6 +800,132 @@
         SN.Router.go('results');
       });
     }
+
+    SN.Router.add('results', function (arg) {
+      SN.ExamSession.stopTimer();
+      document.getElementById('timer').hidden = true;
+
+      var r = SN.lastResult;
+      if (!r) { SN.Router.go('home'); return; }
+
+      var passed = r.percent >= r.passPercent;
+      var pct = r.percent.toFixed(1);
+
+      var head = (arg === 'expired'
+        ? '<div class="card" style="background:var(--bad-bg);color:var(--bad)">' +
+          '<strong>Time expired.</strong> This attempt was submitted automatically.</div>'
+        : '') +
+        '<h2>' + (passed ? 'Passed' : 'Not passed') + '</h2>' +
+        '<div class="card"><p style="font-size:1.6rem;margin:.2rem 0"><strong>' + pct +
+        '%</strong> <span class="pill ' + (passed ? 'ok' : 'no') + '">pass mark ' +
+        r.passPercent + '%</span></p>' +
+        '<p>' + r.correct + ' correct of ' + r.total + ' &middot; ' +
+        r.incorrect + ' incorrect &middot; ' + r.unanswered + ' unanswered</p>' +
+        '<div class="row"><button class="primary" id="again">Same settings</button>' +
+        '<button id="new-setup">Change settings</button>' +
+        '<button id="leave">Done</button></div></div>';
+
+      var filter = SN.view.reviewFilter || 'all';
+      var rows = r.rows.filter(function (row) {
+        if (filter === 'wrong') return !row.isCorrect;
+        if (filter === 'flagged') return row.flagged;
+        return true;
+      });
+
+      var body = rows.map(function (row) {
+        var choices = row.choices.map(function (c) {
+          var picked = row.picked.indexOf(c.id) !== -1;
+          var right = row.correct.indexOf(c.id) !== -1;
+          var mark = right ? ' &#10003;' : (picked ? ' &#10007;' : '');
+          return '<li>' + SN.UI.escape(c.text) + mark +
+            (right ? ' <span class="hint">(correct)</span>' : '') +
+            (picked && !right ? ' <span class="hint">(you picked this)</span>' : '') + '</li>';
+        }).join('');
+
+        return '<div class="result-row">' +
+          '<p class="verdict ' + (row.isCorrect ? 'ok' : 'no') + '">' +
+          (row.isCorrect ? 'Correct' : 'Incorrect') + '</p>' +
+          '<p>' + SN.UI.escape(row.stem) + '</p>' +
+          '<ul>' + choices + '</ul></div>';
+      }).join('');
+
+      SN.UI.render(head +
+        '<div class="row" style="margin:1.5rem 0 1rem">' +
+        '<strong>Review</strong>' +
+        [['all', 'All'], ['wrong', 'Incorrect'], ['flagged', 'Flagged']].map(function (f) {
+          return '<button data-f="' + f[0] + '"' +
+            (filter === f[0] ? ' class="primary"' : '') + '>' + f[1] + '</button>';
+        }).join('') + '</div>' +
+        (body || '<p class="hint">Nothing in this filter.</p>')
+      );
+
+      Array.prototype.forEach.call(document.querySelectorAll('[data-f]'), function (b) {
+        b.addEventListener('click', function () {
+          SN.view.reviewFilter = b.getAttribute('data-f');
+          SN.Router.run();
+        });
+      });
+
+      document.getElementById('again').addEventListener('click', function () {
+        SN.view.pendingSettings = SN.Settings.load();
+        SN.Router.go('exam');
+      });
+      document.getElementById('new-setup').addEventListener('click', function () {
+        SN.Router.go('setup');
+      });
+      document.getElementById('leave').addEventListener('click', function () {
+        SN.Router.go('home');
+      });
+    });
+
+    SN.Router.add('history', function () {
+      var list = SN.History.all();
+      if (!list.length) {
+        SN.UI.render('<h2>History</h2><p class="hint">No finished attempts yet.</p>');
+        return;
+      }
+      SN.UI.render('<h2>History</h2><table><thead><tr><th>When</th><th>Score</th>' +
+        '<th>Result</th><th>Questions</th><th>Time</th></tr></thead><tbody>' +
+        list.map(function (a) {
+          var passed = a.percent >= a.passPercent;
+          return '<tr><td>' + new Date(a.at).toLocaleString() + '</td>' +
+            '<td>' + a.percent.toFixed(1) + '%</td>' +
+            '<td><span class="pill ' + (passed ? 'ok' : 'no') + '">' +
+            (passed ? 'Pass' : 'Fail') + '</span></td>' +
+            '<td>' + a.correct + ' / ' + a.total + '</td>' +
+            '<td>' + (a.expired ? 'expired' : a.durationMinutes + ' min') + '</td></tr>';
+        }).join('') + '</tbody></table>');
+    });
+
+    SN.Router.add('stats', function () {
+      var rows = SN.Stats.rows();
+      if (!rows.length) {
+        SN.UI.render('<h2>Stats</h2><p class="hint">No answers recorded yet.</p>');
+        return;
+      }
+      var answered = rows.reduce(function (n, r) { return n + r.seen; }, 0);
+      var right = rows.reduce(function (n, r) { return n + r.correct; }, 0);
+      SN.UI.render(
+        '<h2>Stats</h2>' +
+        '<div class="card"><p>' + rows.length + ' distinct questions seen, ' +
+        answered + ' answers, ' + right + ' correct (' +
+        (answered ? Math.round(right / answered * 100) : 0) + '%).</p>' +
+        '<button id="clear-stats">Clear stats</button></div>' +
+        '<h2>Weakest first</h2><table><thead><tr><th>Question</th><th>Seen</th>' +
+        '<th>Correct</th><th>Accuracy</th></tr></thead><tbody>' +
+        rows.slice(0, 25).map(function (r) {
+          var pct = Math.round(r.correct / r.seen * 100);
+          return '<tr><td>' + SN.UI.escape(r.id) + '</td><td>' + r.seen + '</td><td>' +
+            r.correct + '</td><td>' + pct + '%</td></tr>';
+        }).join('') + '</tbody></table>'
+      );
+      document.getElementById('clear-stats').addEventListener('click', function () {
+        if (window.confirm('Delete all per-question stats? History is kept.')) {
+          SN.Stats.clear();
+          SN.Router.run();
+        }
+      });
+    });
 
     SN.Router.add('setup', function () {
       var s = SN.Settings.load();

@@ -956,6 +956,7 @@
     function render(html) {
       main.innerHTML = html;
       window.scrollTo(0, 0);
+      afterRender();
     }
 
     function escape(s) {
@@ -986,6 +987,7 @@
     return {
       init: function () { main = document.getElementById('main'); },
       render: render,
+      main: function () { return main; },
       warn: warn,
       clearWarn: clearWarn,
       escape: escape,
@@ -1017,15 +1019,18 @@
       var r = parse();
       current = r.name;
       var fn = routes[r.name];
-      if (!fn) { SN.UI.render('<h2>Not found</h2><p>No view named "' +
-        SN.UI.escape(r.name) + '".</p>'); return; }
+      if (!fn) {
+        SN.UI.render('<h2 data-autofocus>Not found</h2><p>No view named "' +
+          SN.UI.escape(r.name) + '".</p>');
+        return;
+      }
       fn(r.arg);
-      // Repainted here, not only on the timer tick, so the clock and the exam
-      // bar reflect the route that just rendered without waiting a second.
-      // syncExamBar ends with paintClock, so this covers both. The typeof guard
-      // covers a route that runs before the declaration is reached.
-      if (typeof syncExamBar === 'function') syncExamBar();
-      else paintClock();
+
+      // One focus target per view, so a route change moves the reading position
+      // instead of leaving a screen reader at the top of the document. Focusing
+      // scrolls the element into view, which is right on the exam screen because
+      // the position genuinely changed. Patching a pick does not come through
+      // here, so it never disturbs focus.
       var links = document.querySelectorAll('#nav a');
       for (var i = 0; i < links.length; i++) {
         var on = links[i].getAttribute('href') === '#/' + r.name;
@@ -1048,6 +1053,25 @@
   })();
 
 // ---------------------------------------------------------------- Clock
+
+  // Runs after every SN.UI.render. It lives here rather than in SN.Router.run
+  // because renderExam is also called directly, by its own button handlers and by
+  // the keyboard shortcuts, and those paths must focus and repaint too.
+  function afterRender() {
+    var host = SN.UI.main();
+    var focusTarget = host ? host.querySelector('[data-autofocus]') : null;
+    if (focusTarget) {
+      // A heading or a paragraph is not focusable on its own, and focus() on one
+      // is a silent no-op. tabindex -1 makes it programmatically focusable while
+      // keeping it out of the tab order.
+      focusTarget.setAttribute('tabindex', '-1');
+      focusTarget.focus();
+    }
+    // syncExamBar ends with paintClock, so this covers the clock too. The typeof
+    // guard covers a render that happens before the declaration is reached.
+    if (typeof syncExamBar === 'function') syncExamBar();
+    else paintClock();
+  }
 
   function fmtMs(ms) {
     var s = Math.floor(ms / 1000);
@@ -1508,7 +1532,7 @@
         ? '<div class="card" style="background:var(--bad-bg);color:var(--bad)">' +
           '<strong>Time expired.</strong> This attempt was submitted automatically.</div>'
         : '') +
-        '<h2>' + (passed ? 'Passed' : 'Not passed') + '</h2>' +
+        '<h2 data-autofocus>' + (passed ? 'Passed' : 'Not passed') + '</h2>' +
         '<div class="card"><p style="font-size:1.6rem;margin:.2rem 0"><strong>' + pct +
         '%</strong> <span class="pill ' + (passed ? 'ok' : 'no') + '">pass mark ' +
         r.passPercent + '%</span></p>' +
@@ -1574,10 +1598,11 @@
     SN.Router.add('history', function () {
       var list = SN.History.all();
       if (!list.length) {
-        SN.UI.render('<h2>History</h2><p class="hint">No finished attempts yet.</p>');
+        SN.UI.render('<h2 data-autofocus>History</h2>' +
+          '<p class="hint">No finished attempts yet.</p>');
         return;
       }
-      SN.UI.render('<h2>History</h2><table><thead><tr><th>When</th><th>Score</th>' +
+      SN.UI.render('<h2 data-autofocus>History</h2><table><thead><tr><th>When</th><th>Score</th>' +
         '<th>Result</th><th>Questions</th><th>Time</th></tr></thead><tbody>' +
         list.map(function (a) {
           var passed = a.percent >= a.passPercent;
@@ -1593,13 +1618,14 @@
     SN.Router.add('stats', function () {
       var rows = SN.Stats.rows();
       if (!rows.length) {
-        SN.UI.render('<h2>Stats</h2><p class="hint">No answers recorded yet.</p>');
+        SN.UI.render('<h2 data-autofocus>Stats</h2>' +
+          '<p class="hint">No answers recorded yet.</p>');
         return;
       }
       var answered = rows.reduce(function (n, r) { return n + r.seen; }, 0);
       var right = rows.reduce(function (n, r) { return n + r.correct; }, 0);
       SN.UI.render(
-        '<h2>Stats</h2>' +
+        '<h2 data-autofocus>Stats</h2>' +
         '<div class="card"><p>' + rows.length + ' distinct questions seen, ' +
         answered + ' answers, ' + right + ' correct (' +
         (answered ? Math.round(right / answered * 100) : 0) + '%).</p>' +
@@ -1629,7 +1655,7 @@
       var max = SN.Questions.count();
 
       SN.UI.render(
-        '<h2>New attempt</h2>' +
+        '<h2 data-autofocus>New attempt</h2>' +
         '<label for="f-count">Questions</label>' +
         '<input type="number" id="f-count" min="1" max="' + max + '" value="' + s.questionCount + '">' +
         '<p class="hint">' + max + ' available. With shuffle off, the first N in file order are used.</p>' +

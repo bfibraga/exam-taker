@@ -195,7 +195,9 @@
   // --------------------------------------------------------------- Loader
 
   SN.Loader = (function () {
-    var FAILED_JSON = null;
+    var SOURCE = null;
+
+    function isLocalFile() { return window.location.protocol === 'file:'; }
 
     function viaFetch() {
       if (typeof window.fetch !== 'function') return Promise.reject(new Error('no fetch'));
@@ -212,24 +214,42 @@
     }
 
     function load() {
-      return viaFetch().catch(function (err) {
-        // file:// blocks fetch; that is expected, not an error to shout about.
-        if (window.location.protocol === 'file:') FAILED_JSON = err;
-        try { return viaScript(); }
-        catch (e2) {
-          throw new Error(
-            'Could not read the question bank.\n\n' +
-            'Tried fetch("./questions.json"): ' + err.message + '\n' +
-            'Tried window.QUESTIONS: ' + e2.message + '\n\n' +
-            'Make sure questions.json and questions.js sit in the same folder ' +
-            'as index.html, then regenerate them with:\n' +
-            '  node tools/convert.js'
-          );
+      // On file:// the browser refuses to serve a sibling file over fetch and
+      // logs a CORS error the user cannot act on. Skipping the attempt avoids
+      // a red console message on every load; window.QUESTIONS is already there.
+      if (isLocalFile()) {
+        SOURCE = 'questions.js';
+        try { return Promise.resolve(viaScript()); }
+        catch (e) { return Promise.reject(describe(e, null)); }
+      }
+
+      return viaFetch().then(function (bank) {
+        SOURCE = 'questions.json';
+        return bank;
+      }).catch(function (err) {
+        // Served over HTTP but the JSON is missing or unreadable. The wrapper
+        // may still be present, so try it before giving up.
+        try {
+          SOURCE = 'questions.js';
+          return viaScript();
+        } catch (e2) {
+          return Promise.reject(describe(e2, err));
         }
       });
     }
 
-    return { load: load, jsonError: function () { return FAILED_JSON; } };
+    function describe(scriptErr, fetchErr) {
+      var lines = ['Could not read the question bank.', ''];
+      if (fetchErr) lines.push('Tried fetch("./questions.json"): ' + fetchErr.message);
+      lines.push('Tried window.QUESTIONS: ' + scriptErr.message);
+      lines.push('');
+      lines.push('Make sure questions.json and questions.js sit in the same folder');
+      lines.push('as index.html, then regenerate them with:');
+      lines.push('  node tools/convert.js');
+      return new Error(lines.join('\n'));
+    }
+
+    return { load: load, source: function () { return SOURCE; } };
   })();
 
   // ------------------------------------------------------------- Settings

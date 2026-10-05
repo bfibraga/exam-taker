@@ -230,7 +230,12 @@ Expected: four `true` lines. The last line confirms the `file://` wrapper is not
 ```bash
 node -e '
 const s = require("fs").readFileSync("questions.json","utf8");
-const probes = ["deloitte","federated","sessionID","@","sp_widget","client_script","template","css_variables","userName"];
+// Structural markers only. Deliberately excludes words that legitimately
+// appear in exam content: "template" (form templates) and "sys_id"
+// (a question asks what a sys_id is).
+const probes = ["deloitte","federated","sessionID","@","sp_widget","client_script",
+                "css_variables","userName","escNavigation","loginWidget",
+                "metastack","ng-if","pageURI"];
 const hits = probes.filter(p => s.includes(p));
 console.log(hits.length ? "LEAKED: " + hits.join(", ") : "clean: no portal internals");
 '

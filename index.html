@@ -232,6 +232,17 @@
   th, td { text-align: left; padding: .5rem; border-bottom: 1px solid var(--line); }
   th { color: var(--muted); font-weight: 600; }
 
+  kbd {
+    font: inherit;
+    font-size: .85em;
+    padding: .1rem .35rem;
+    border: 1px solid var(--line-strong);
+    border-bottom-width: 2px;
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    color: var(--ink);
+  }
+
   dialog {
     border: none;
     border-radius: var(--r);
@@ -385,6 +396,32 @@
 </footer>
 
 <dialog id="dlg"></dialog>
+
+<dialog id="keys-dlg" aria-labelledby="keys-title">
+  <h2 id="keys-title">Keyboard shortcuts</h2>
+  <h3>Answer</h3>
+  <table>
+    <tbody>
+      <tr><td><kbd>A</kbd> &ndash; <kbd>K</kbd></td><td>Pick that choice</td></tr>
+    </tbody>
+  </table>
+  <h3>Move</h3>
+  <table>
+    <tbody>
+      <tr><td><kbd>&larr;</kbd> <kbd>&rarr;</kbd></td><td>Previous / next question</td></tr>
+      <tr><td><kbd>Enter</kbd></td><td>Next, or Submit on the last question</td></tr>
+      <tr><td><kbd>1</kbd> &ndash; <kbd>9</kbd></td><td>Jump to that question</td></tr>
+    </tbody>
+  </table>
+  <h3>Meta</h3>
+  <table>
+    <tbody>
+      <tr><td><kbd>F</kbd></td><td>Flag / unflag this question</td></tr>
+      <tr><td><kbd>?</kbd></td><td>This sheet</td></tr>
+    </tbody>
+  </table>
+  <div class="row row-end"><button class="btn" id="keys-close" type="button">Close</button></div>
+</dialog>
 
 <!-- Present at all times: on file:// the fetch below fails and SN.Loader
      reads window.QUESTIONS instead. Over HTTP it loads harmlessly and is
@@ -1055,6 +1092,10 @@
       if (typeof syncExamBar === 'function') syncExamBar();
     });
 
+    document.getElementById('keys-close').addEventListener('click', function () {
+      document.getElementById('keys-dlg').close();
+    });
+
     var nav = document.getElementById('nav');
     nav.innerHTML = ['home', 'setup', 'history', 'stats']
       .map(function (n) {
@@ -1087,6 +1128,10 @@
       }
       SN.UI.clearWarn();
       renderExam();
+      if (!boundKeys) {
+        document.addEventListener('keydown', onKey);
+        boundKeys = true;
+      }
     });
 
 
@@ -1249,6 +1294,51 @@
       }
     }
 
+    var boundKeys = false;
+
+    function onKey(e) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      var t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+      // A modal owns the keyboard while it is open, otherwise Enter would
+      // re-trigger the submit dialog that is already up.
+      if (document.getElementById('dlg').open) return;
+      if (document.getElementById('keys-dlg').open) return;
+
+      var k = e.key;
+      if (k === '?') { e.preventDefault(); openKeys(); return; }
+      if (k === 'f' || k === 'F') { e.preventDefault(); applyFlag(); return; }
+      if (k === 'ArrowLeft') { e.preventDefault(); go(-1); return; }
+      if (k === 'ArrowRight' || k === 'Enter') { e.preventDefault(); go(1); return; }
+      if (k >= '1' && k <= '9') {
+        e.preventDefault();
+        SN.ExamSession.setIndex(parseInt(k, 10) - 1);
+        renderExam();
+        return;
+      }
+      if (/^[a-kA-K]$/.test(k)) {
+        e.preventDefault();
+        var letter = k.toUpperCase();
+        // The letter guard is what makes A-K safe: a question with four
+        // choices ignores E through K instead of doing something surprising.
+        if (!document.querySelector('#choices .choice[data-letter="' + letter + '"]')) return;
+        applyPick(letter);
+      }
+    }
+
+    function go(delta) {
+      var i = SN.ExamSession.index();
+      var last = SN.ExamSession.get().ids.length - 1;
+      if (delta > 0 && i === last) { confirmSubmit(); return; }
+      SN.ExamSession.setIndex(i + delta);
+      renderExam();
+    }
+
+    function openKeys() {
+      var d = document.getElementById('keys-dlg');
+      if (!d.open) d.showModal();
+    }
+
     function confirmSubmit() {
       var st = SN.ExamSession.get();
       var unanswered = st.ids.length - SN.ExamSession.answerCount();
@@ -1274,6 +1364,9 @@
 
     SN.Router.add('results', function (arg) {
       SN.ExamSession.stopTimer();
+      // The only other way out of an exam. If a route is ever added, move both
+      // halves into SN.Router.run() so they cannot drift apart.
+      if (boundKeys) { document.removeEventListener('keydown', onKey); boundKeys = false; }
       document.getElementById('timer').hidden = true;
 
       var r = SN.lastResult;

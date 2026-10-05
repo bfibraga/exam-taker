@@ -1747,6 +1747,11 @@ node tools/validate.js questions.json
 node tools/convert.js --count=60 --minutes=90 --pass=70 --id=csa --title="My Exam"
 ```
 
+**`SN.Questions` indexes lazily.** `SN.bank` is assigned by the loader's promise,
+after these module IIFEs have already run. Building the id lookup at definition
+time throws on `SN.bank.questions`. The index is built on first `get()` call
+instead.
+
 After editing `questions.json` by hand, rerun the converter so `questions.js`
 stays in step. A stale wrapper means the `file://` path runs the old bank while
 the HTTP path runs the new one.

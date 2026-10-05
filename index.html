@@ -230,6 +230,69 @@
     return { load: load, jsonError: function () { return FAILED_JSON; } };
   })();
 
+  // ------------------------------------------------------------- Settings
+
+  SN.Settings = (function () {
+    var KEY = 'exam.settings.v1';
+
+    function defaults() {
+      return {
+        questionCount: SN.bank.exam.questionCount,
+        durationMinutes: SN.bank.exam.durationMinutes,
+        shuffle: true,
+        passPercent: SN.bank.exam.passPercent
+      };
+    }
+
+    function load() {
+      var d = defaults();
+      var saved = SN.Store.getJSON(KEY);
+      if (!saved) return d;
+      // Re-clamp: the bank may have shrunk since these were saved.
+      return {
+        questionCount: Math.min(Number(saved.questionCount) || d.questionCount, SN.bank.questions.length),
+        durationMinutes: Number(saved.durationMinutes) || d.durationMinutes,
+        shuffle: saved.shuffle !== false,
+        passPercent: Number(saved.passPercent) || d.passPercent
+      };
+    }
+
+    function save(s) { SN.Store.setJSON(KEY, s); }
+
+    return { defaults: defaults, load: load, save: save };
+  })();
+
+  // ------------------------------------------------------------ Questions
+
+  SN.Questions = (function () {
+    // Built on first use, not at definition time: SN.bank is assigned by the
+    // loader's promise, long after these IIFEs have run.
+    var byId = null;
+
+    function ensure() {
+      if (byId) return;
+      byId = {};
+      SN.bank.questions.forEach(function (q) { byId[q.id] = q; });
+    }
+
+    function get(id) { ensure(); return byId[id]; }
+    function all() { return SN.bank.questions; }
+    function count() { return SN.bank.questions.length; }
+
+    function draw(n, shuffle) {
+      var pool = SN.bank.questions.slice();
+      if (shuffle) {
+        for (var i = pool.length - 1; i > 0; i--) {
+          var j = Math.floor(Math.random() * (i + 1));
+          var t = pool[i]; pool[i] = pool[j]; pool[j] = t;
+        }
+      }
+      return pool.slice(0, Math.min(n, pool.length)).map(function (q) { return q.id; });
+    }
+
+    return { get: get, all: all, count: count, draw: draw };
+  })();
+
   // ------------------------------------------------------------------ UI
 
   SN.UI = (function () {
@@ -315,6 +378,10 @@
 
   // ----------------------------------------------------------------- boot
 
+  // SN.view holds transient view state: which question is on screen, the
+  // settings a fresh exam is about to start with, and the review filter.
+  SN.view = { index: 0, pendingSettings: null, reviewFilter: 'all' };
+
   SN.UI.init();
 
   if (!SN.Store.isPersistent()) {
@@ -345,6 +412,47 @@
       );
       document.getElementById('go-setup').addEventListener('click', function () {
         SN.Router.go('setup');
+      });
+    });
+
+    SN.Router.add('setup', function () {
+      var s = SN.Settings.load();
+      var max = SN.Questions.count();
+
+      SN.UI.render(
+        '<h2>New attempt</h2>' +
+        '<label for="f-count">Questions</label>' +
+        '<input type="number" id="f-count" min="1" max="' + max + '" value="' + s.questionCount + '">' +
+        '<p class="hint">' + max + ' available. With shuffle off, the first N in file order are used.</p>' +
+        '<label for="f-minutes">Minutes</label>' +
+        '<input type="number" id="f-minutes" min="1" max="600" value="' + s.durationMinutes + '">' +
+        '<label for="f-pass">Pass mark (%)</label>' +
+        '<input type="number" id="f-pass" min="1" max="100" value="' + s.passPercent + '">' +
+        '<div class="row" style="margin-top:1rem">' +
+        '<label style="font-weight:400;margin:0">' +
+        '<input type="checkbox" id="f-shuffle"' + (s.shuffle ? ' checked' : '') + '> Shuffle questions</label>' +
+        '</div>' +
+        '<p class="row" style="margin-top:1.25rem">' +
+        '<button class="primary" id="start">Begin</button> ' +
+        '<button id="cancel">Cancel</button></p>'
+      );
+
+      document.getElementById('cancel').addEventListener('click', function () {
+        SN.Router.go('home');
+      });
+
+      document.getElementById('start').addEventListener('click', function () {
+        var settings = {
+          questionCount: Math.min(
+            Math.max(1, parseInt(document.getElementById('f-count').value, 10) || 1), max),
+          durationMinutes: Math.max(1, parseInt(document.getElementById('f-minutes').value, 10) || 1),
+          shuffle: document.getElementById('f-shuffle').checked,
+          passPercent: Math.min(100, Math.max(1,
+            parseInt(document.getElementById('f-pass').value, 10) || SN.bank.exam.passPercent))
+        };
+        SN.Settings.save(settings);
+        SN.view.pendingSettings = settings;
+        SN.Router.go('exam');
       });
     });
 

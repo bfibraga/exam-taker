@@ -1066,6 +1066,14 @@
   // Runs after every SN.UI.render. It lives here rather than in SN.Router.run
   // because renderExam is also called directly, by its own button handlers and by
   // the keyboard shortcuts, and those paths must focus and repaint too.
+  // A session can come into existence three ways: restored from storage at
+  // boot, created by the setup screen, or restored again by the exam route. Each
+  // one has to start the clock, or the countdown sits frozen and an expired
+  // deadline never auto-submits.
+  function ensureTimer() {
+    if (SN.ExamSession.has()) SN.ExamSession.startTimer(paintClock);
+  }
+
   function afterRender() {
     var host = SN.UI.main();
     var focusTarget = host ? host.querySelector('[data-autofocus]') : null;
@@ -1294,6 +1302,7 @@
         return;
       }
       SN.UI.clearWarn();
+      ensureTimer();
       renderExam();
       if (!boundKeys) {
         document.addEventListener('keydown', onKey);
@@ -1742,9 +1751,9 @@
     // exactly once. SN.Router.start() renders.
     SN.ExamSession.restore();
 
-    // Started here rather than on the exam route so the clock is honest on every
-    // view, and so an expired deadline auto-submits from any view.
-    if (SN.ExamSession.has()) SN.ExamSession.startTimer(paintClock);
+    // Started here rather than only on the exam route so the clock is honest on
+    // every view, and so an expired deadline auto-submits from any view.
+    ensureTimer();
 
     SN.Router.start();
   }).catch(function (err) {

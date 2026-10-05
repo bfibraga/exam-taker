@@ -1086,22 +1086,52 @@
         return;
       }
       SN.UI.clearWarn();
-      drawQuestion();
+      renderExam();
     });
 
 
-    function drawQuestion() {
+    function paletteCell(idx) {
+      return document.querySelector('.palette button[data-i="' + idx + '"]');
+    }
+
+    // metaText and paletteLabel carry HTML entities, so they are written with
+    // innerHTML. Both contain only counts and fixed words; everything derived
+    // from the bank goes through SN.UI.escape here.
+    function paletteLabel(st, idx) {
+      var qid = st.ids[idx];
+      return 'Question ' + (idx + 1) +
+        ((st.picks[qid] || []).length ? ', answered' : ', not answered') +
+        (st.flags[qid] ? ', flagged' : '');
+    }
+
+    function metaText() {
+      return SN.ExamSession.answerCount() + ' answered &middot; ' +
+        SN.ExamSession.flagCount() + ' flagged';
+    }
+
+    function pickCountText(q, n) {
+      if (n < q.correct.length) {
+        return 'Select ' + q.correct.length + ' &mdash; ' + n + ' of ' +
+          q.correct.length + ' chosen';
+      }
+      return q.correct.length + ' of ' + q.correct.length +
+        ' chosen &mdash; deselect one to swap';
+    }
+
+    function renderExam() {
       var st = SN.ExamSession.get();
       var i = SN.ExamSession.index();
-      var id = SN.ExamSession.currentId();
       var q = SN.ExamSession.currentQuestion();
+      var id = SN.ExamSession.currentId();
       var picked = SN.ExamSession.picksFor(id);
       var multi = q.type === 'multi';
 
       var choices = q.choices.map(function (c) {
         var on = picked.indexOf(c.id) !== -1;
-        return '<label class="choice"><input type="' + (multi ? 'checkbox' : 'radio') +
-          '" name="pick" value="' + c.id + '"' + (on ? ' checked' : '') + '> ' +
+        return '<label class="choice' + (on ? ' is-on' : '') + '" data-letter="' + c.id + '">' +
+          '<input type="' + (multi ? 'checkbox' : 'radio') + '" name="pick" value="' + c.id + '"' +
+          (on ? ' checked' : '') + '> ' +
+          '<span class="key">' + SN.UI.escape(c.id) + '</span>' +
           '<span>' + SN.UI.escape(c.text) + '</span></label>';
       }).join('');
 
@@ -1110,37 +1140,36 @@
         if (idx === i) cls.push('current');
         if ((st.picks[qid] || []).length) cls.push('answered');
         if (st.flags[qid]) cls.push('flagged');
-        var label = 'Question ' + (idx + 1) +
-          ((st.picks[qid] || []).length ? ', answered' : ', not answered') +
-          (st.flags[qid] ? ', flagged' : '');
         return '<button class="' + cls.join(' ') + '" data-i="' + idx +
-          '" aria-label="' + label + '">' + (idx + 1) + '</button>';
+          '" aria-label="' + paletteLabel(st, idx) + '">' + (idx + 1) + '</button>';
       }).join('');
 
       SN.UI.render(
-        '<h2>' + SN.UI.escape(SN.bank.exam.title) + '</h2>' +
-        '<p class="hint">Question ' + (i + 1) + ' of ' + st.ids.length + ' &middot; ' +
-        SN.ExamSession.answerCount() + ' answered &middot; ' +
-        SN.ExamSession.flagCount() + ' flagged' +
-        (multi ? ' &middot; choose ' + q.correct.length : '') + '</p>' +
-        '<div class="stem">' + SN.UI.escape(q.stem) + '</div>' +
+        '<h2 data-autofocus>Question ' + (i + 1) + ' of ' + st.ids.length + '</h2>' +
+        '<p class="hint" id="exam-meta">' + metaText() + '</p>' +
+        '<div class="stem" id="exam-stem">' + SN.UI.escape(q.stem) + '</div>' +
+        '<div class="choice-head">' +
+        (multi ? '<p class="hint" id="pick-count">' + pickCountText(q, picked.length) + '</p>' : '') +
+        '<p class="hint" id="key-help">A&ndash;K pick &middot; &larr; &rarr; move ' +
+        '&middot; F flag &middot; ? help</p>' +
+        '</div>' +
         '<div id="choices">' + choices + '</div>' +
         '<div class="palette">' + palette + '</div>' +
         '<div class="row">' +
-        '<button class="btn" id="prev"' + (i === 0 ? ' disabled' : '') + '>Previous</button>' +
-        '<button class="btn" id="next"' + (i === st.ids.length - 1 ? ' disabled' : '') + '>Next</button>' +
-        '<button class="btn" id="flag">' + (SN.ExamSession.isFlagged(id) ? 'Unflag' : 'Flag') + '</button>' +
-        '<button class="btn btn-primary" id="submit">Submit exam</button>' +
+        '<button class="btn" id="prev" aria-keyshortcuts="ArrowLeft"' +
+        (i === 0 ? ' disabled' : '') + '>Previous</button>' +
+        '<button class="btn" id="next" aria-keyshortcuts="ArrowRight"' +
+        (i === st.ids.length - 1 ? ' disabled' : '') + '>Next</button>' +
+        '<button class="btn" id="flag" aria-keyshortcuts="F">' +
+        (SN.ExamSession.isFlagged(id) ? 'Unflag' : 'Flag') + '</button>' +
+        '<button class="btn btn-primary" id="submit" aria-keyshortcuts="Enter">Submit exam</button>' +
         '</div>'
       );
 
       Array.prototype.forEach.call(
         document.querySelectorAll('#choices input'),
         function (input) {
-          input.addEventListener('change', function () {
-            SN.ExamSession.setPick(id, input.value);
-            drawQuestion();
-          });
+          input.addEventListener('change', function () { applyPick(input.value); });
         }
       );
 
@@ -1149,23 +1178,75 @@
         function (b) {
           b.addEventListener('click', function () {
             SN.ExamSession.setIndex(parseInt(b.getAttribute('data-i'), 10));
-            drawQuestion();
+            renderExam();
           });
         }
       );
 
       document.getElementById('prev').addEventListener('click', function () {
-        SN.ExamSession.setIndex(i - 1); drawQuestion();
+        SN.ExamSession.setIndex(i - 1); renderExam();
       });
       document.getElementById('next').addEventListener('click', function () {
-        SN.ExamSession.setIndex(i + 1); drawQuestion();
+        SN.ExamSession.setIndex(i + 1); renderExam();
       });
-      document.getElementById('flag').addEventListener('click', function () {
-        SN.ExamSession.toggleFlag(id); drawQuestion();
-      });
+      document.getElementById('flag').addEventListener('click', function () { applyFlag(); });
       document.getElementById('submit').addEventListener('click', confirmSubmit);
 
       paintClock();
+    }
+
+    function applyPick(letter) {
+      var st = SN.ExamSession.get();
+      var i = SN.ExamSession.index();
+      var id = SN.ExamSession.currentId();
+      var q = SN.ExamSession.currentQuestion();
+
+      SN.ExamSession.setPick(id, letter);
+
+      // Re-derive from state rather than assuming the write landed: setPick
+      // refuses a pick once a multi question is at its cap, and then nothing
+      // below changes. That refusal is the intended behaviour.
+      var picks = SN.ExamSession.picksFor(id);
+      Array.prototype.forEach.call(
+        document.querySelectorAll('#choices .choice'),
+        function (row) {
+          var lid = row.getAttribute('data-letter');
+          var on = picks.indexOf(lid) !== -1;
+          row.className = 'choice' + (on ? ' is-on' : '');
+          row.querySelector('input').checked = on;
+        }
+      );
+
+      var pc = document.getElementById('pick-count');
+      if (pc) pc.innerHTML = pickCountText(q, picks.length);
+
+      document.getElementById('exam-meta').innerHTML = metaText();
+
+      var cell = paletteCell(i);
+      if (cell) {
+        if (picks.length) cell.classList.add('answered');
+        else cell.classList.remove('answered');
+        cell.setAttribute('aria-label', paletteLabel(st, i));
+      }
+    }
+
+    function applyFlag() {
+      var st = SN.ExamSession.get();
+      var i = SN.ExamSession.index();
+      var id = SN.ExamSession.currentId();
+
+      SN.ExamSession.toggleFlag(id);
+
+      document.getElementById('flag').textContent =
+        SN.ExamSession.isFlagged(id) ? 'Unflag' : 'Flag';
+      document.getElementById('exam-meta').innerHTML = metaText();
+
+      var cell = paletteCell(i);
+      if (cell) {
+        if (SN.ExamSession.isFlagged(id)) cell.classList.add('flagged');
+        else cell.classList.remove('flagged');
+        cell.setAttribute('aria-label', paletteLabel(st, i));
+      }
     }
 
     function confirmSubmit() {

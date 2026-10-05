@@ -1479,10 +1479,19 @@
       // A modal owns the keyboard while it is open, otherwise Enter would
       // re-trigger the submit dialog that is already up.
       if (document.getElementById('dlg').open) return;
-      if (document.getElementById('keys-dlg').open) return;
 
       var k = e.key;
-      if (k === '?') { e.preventDefault(); openKeys(); return; }
+
+      // Handled above the sheet's own guard so '?' toggles it, per the spec. The
+      // sheet holds no inputs, so there is nothing in it to type into and no
+      // reason for it to swallow the key.
+      if (k === '?') {
+        e.preventDefault();
+        toggleKeys();
+        return;
+      }
+      if (document.getElementById('keys-dlg').open) return;
+
       if (k === 'f' || k === 'F') { e.preventDefault(); applyFlag(); return; }
       if (k === 'ArrowLeft') { e.preventDefault(); go(-1); return; }
       if (k === 'ArrowRight' || k === 'Enter') { e.preventDefault(); go(1); return; }
@@ -1510,9 +1519,10 @@
       renderExam();
     }
 
-    function openKeys() {
+    function toggleKeys() {
       var d = document.getElementById('keys-dlg');
-      if (!d.open) d.showModal();
+      if (d.open) d.close();
+      else d.showModal();
     }
 
     function confirmSubmit() {

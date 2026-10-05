@@ -6,101 +6,353 @@
 <title>Exam Runner</title>
 <style>
   :root {
-    --ink: #10171a;
-    --muted: #4f5c62;
-    --line: #d9d9d9;
-    --bg: #ffffff;
-    --panel: #f5f6f7;
+    color-scheme: light dark;
+
+    --bg: #faf9f7;
+    --surface: #ffffff;
+    --surface-2: #f2f1ee;
+    --ink: #1c1f1e;
+    --muted: #5f6663;
+    --line: #e4e2dd;
+    --line-strong: #cfccc5;
     --brand: #004f65;
+    --on-brand: #ffffff;
+    --brand-soft: #e8f0f2;
+    --focus: #0b6fa4;
     --good: #1c6b3c;
     --good-bg: #e4f2ea;
     --bad: #a4262c;
     --bad-bg: #fbeaeb;
     --warn-bg: #fdf3d8;
     --warn-ink: #6b5310;
+    --shadow: 0 1px 2px rgba(28,31,30,.05), 0 1px 3px rgba(28,31,30,.04);
+
+    --r: 10px;
+    --r-sm: 6px;
+
+    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px;
+    --s5: 24px; --s6: 32px; --s7: 48px;
+
+    --t: 120ms;
   }
+
+  /* Dark palette. Written twice on purpose:
+     the media query handles the pre-paint window, the attribute block handles an
+     explicit choice. Both selectors are specificity (0,2,0), so source order
+     decides — the attribute block must come second. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171a;
+      --surface: #1b1f23;
+      --surface-2: #23282c;
+      --ink: #e8e6e3;
+      --muted: #9aa1a6;
+      --line: #2c3237;
+      --line-strong: #3d454b;
+      --brand: #6fc3d6;
+      --on-brand: #08222a;
+      --brand-soft: #1d2b30;
+      --focus: #5fb4d8;
+      --good: #6fcf97;
+      --good-bg: #1a2a21;
+      --bad: #f08a8e;
+      --bad-bg: #2b1d1e;
+      --warn-bg: #2a2416;
+      --warn-ink: #e2c877;
+      --shadow: 0 1px 2px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171a;
+    --surface: #1b1f23;
+    --surface-2: #23282c;
+    --ink: #e8e6e3;
+    --muted: #9aa1a6;
+    --line: #2c3237;
+    --line-strong: #3d454b;
+    --brand: #6fc3d6;
+    --on-brand: #08222a;
+    --brand-soft: #1d2b30;
+    --focus: #5fb4d8;
+    --good: #6fcf97;
+    --good-bg: #1a2a21;
+    --bad: #f08a8e;
+    --bad-bg: #2b1d1e;
+    --warn-bg: #2a2416;
+    --warn-ink: #e2c877;
+    --shadow: 0 1px 2px rgba(0,0,0,.4);
+  }
+
   * { box-sizing: border-box; }
+
   body {
     margin: 0;
-    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     color: var(--ink);
     background: var(--bg);
   }
+
+  /* Focus is a first-class state here. The app had no focus styling at all. */
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+
+  /* ------------------------------------------------------------- chrome */
+
   header {
+    background: var(--surface);
     border-bottom: 1px solid var(--line);
-    padding: 1rem 1.5rem;
+    padding: .85rem 1.5rem;
     display: flex;
     flex-wrap: wrap;
-    gap: 1rem;
-    align-items: baseline;
+    gap: var(--s4);
+    align-items: center;
   }
-  header h1 { font-size: 1.2rem; margin: 0; }
-  nav { display: flex; gap: 1rem; flex-wrap: wrap; }
-  nav a { color: var(--muted); text-decoration: none; padding: .2rem 0; }
-  nav a.active { color: var(--brand); border-bottom: 2px solid var(--brand); font-weight: 600; }
+  header h1 { font-size: 1rem; font-weight: 600; margin: 0; }
+
+  nav { display: flex; gap: var(--s1); flex-wrap: wrap; }
+  nav a {
+    color: var(--muted);
+    text-decoration: none;
+    padding: .35rem .7rem;
+    border-radius: var(--r-sm);
+    transition: background var(--t), color var(--t);
+  }
+  nav a:hover { background: var(--surface-2); color: var(--ink); }
+  nav a.active { color: var(--brand); background: var(--brand-soft); font-weight: 600; }
+
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: var(--s3); }
+  #theme-toggle { font-size: .85rem; }
+
   #timer {
-    margin-left: auto;
     font-variant-numeric: tabular-nums;
     font-weight: 600;
+    min-width: 3.5rem;
+    text-align: right;
   }
   #timer.urgent { color: var(--bad); }
-  main { max-width: 46rem; margin: 0 auto; padding: 1.5rem; }
+
+  main { max-width: 48rem; margin: 0 auto; padding: var(--s6) 1.5rem var(--s7); }
+
   footer {
     border-top: 1px solid var(--line);
-    padding: 1rem 1.5rem;
+    padding: var(--s4) 1.5rem;
     color: var(--muted);
     font-size: .85rem;
   }
-  h2 { font-size: 1.1rem; margin-top: 0; }
-  label { display: block; margin: .9rem 0 .25rem; font-weight: 600; }
+
+  /* Exam bar. Static markup, outside <main>, so no route render can destroy it. */
+  #exambar {
+    background: var(--brand-soft);
+    border-bottom: 1px solid var(--line);
+    padding: .5rem 1.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s3);
+    align-items: center;
+    font-size: .9rem;
+  }
+  #exambar-clock { font-variant-numeric: tabular-nums; }
+  #exambar .btn { margin-left: auto; }
+
+  #notice {
+    display: none;
+    margin: 0;
+    padding: .7rem 1.5rem;
+    background: var(--warn-bg);
+    color: var(--warn-ink);
+  }
+  #notice.show { display: block; }
+
+  /* ------------------------------------------------------------ typography */
+
+  h2 { font-size: 1.3rem; line-height: 1.3; font-weight: 600; margin: 0 0 var(--s3); }
+  h3 { font-size: 1rem; line-height: 1.4; font-weight: 600; margin: var(--s5) 0 var(--s2); }
+
+  .home-title { font-size: 1.5rem; line-height: 1.25; font-weight: 600; margin: 0; }
+  .hint { color: var(--muted); font-size: .85rem; margin: var(--s1) 0 0; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+  /* ------------------------------------------------------------- controls */
+
+  label { display: block; margin: var(--s4) 0 var(--s1); font-weight: 600; }
   input[type=number], input[type=text], select {
     font: inherit;
     padding: .45rem .55rem;
-    border: 1px solid var(--line);
-    border-radius: 4px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink);
     min-width: 8rem;
   }
-  .hint { color: var(--muted); font-size: .85rem; margin: .2rem 0 0; }
-  button {
+
+  .btn {
     font: inherit;
     padding: .5rem 1rem;
     border: 1px solid var(--line);
-    border-radius: 4px;
-    background: var(--panel);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink);
     cursor: pointer;
+    transition: background var(--t), border-color var(--t), color var(--t);
   }
-  button.primary { background: var(--brand); color: #fff; border-color: var(--brand); }
-  button:disabled { opacity: .5; cursor: default; }
-  .row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+  .btn:hover:not(:disabled) { background: var(--surface-2); }
+  .btn-primary { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+  .btn-primary:hover:not(:disabled) { background: var(--brand); filter: brightness(1.08); }
+  .btn-quiet { background: transparent; border-color: transparent; color: var(--muted); }
+  .btn-quiet:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
+  .btn:disabled { opacity: .5; cursor: default; }
+
+  .row { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
+  .row-end { justify-content: flex-end; margin-top: var(--s5); }
+
+  /* --------------------------------------------------------------- pieces */
+
   .card {
-    background: var(--panel);
+    background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 1rem;
-    margin: 1rem 0;
+    border-radius: var(--r);
+    box-shadow: var(--shadow);
+    padding: var(--s4) var(--s5);
+    margin: var(--s4) 0;
   }
-  #notice { display: none; margin: 0; padding: .7rem 1.5rem; background: var(--warn-bg); color: var(--warn-ink); }
-  #notice.show { display: block; }
-  .stem { font-size: 1.05rem; margin-bottom: 1rem; }
-  .choice { display: flex; gap: .6rem; align-items: flex-start; padding: .5rem; border-radius: 4px; }
-  .choice:hover { background: var(--panel); }
-  .palette { display: flex; flex-wrap: wrap; gap: .35rem; margin: 1.25rem 0; }
-  .palette button { min-width: 2.3rem; padding: .35rem; font-variant-numeric: tabular-nums; }
-  .palette button.current { outline: 2px solid var(--brand); outline-offset: 1px; font-weight: 700; }
-  .palette button.answered { background: var(--brand); color: #fff; border-color: var(--brand); }
-  .palette button.flagged { border-color: var(--brand); border-width: 2px; }
-  .result-row { border-top: 1px solid var(--line); padding: .9rem 0; }
-  .verdict { font-weight: 700; }
-  .verdict.ok { color: var(--good); }
-  .verdict.no { color: var(--bad); }
+  .card > :first-child { margin-top: 0; }
+  .card > :last-child { margin-bottom: 0; }
+
   .pill { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .8rem; }
   .pill.ok { background: var(--good-bg); color: var(--good); }
   .pill.no { background: var(--bad-bg); color: var(--bad); }
-  table { border-collapse: collapse; width: 100%; }
+
+  table { border-collapse: collapse; width: 100%; font-size: .95rem; }
   th, td { text-align: left; padding: .5rem; border-bottom: 1px solid var(--line); }
-  dialog { border: 1px solid var(--line); border-radius: 8px; padding: 1.25rem; max-width: 26rem; }
-  dialog::backdrop { background: rgba(16,23,26,.35); }
-  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  th { color: var(--muted); font-weight: 600; }
+
+  dialog {
+    border: none;
+    border-radius: var(--r);
+    padding: var(--s5);
+    max-width: 26rem;
+    color: var(--ink);
+    background: var(--surface);
+    box-shadow: 0 12px 32px rgba(0,0,0,.28);
+  }
+  dialog::backdrop { background: rgba(20,23,26,.45); }
+
+  /* Choice rows. The native input stays focusable at 1px and opacity 0 so it
+     is still announced and still reachable; the row is what you see. */
+  .stem { font-size: 1.15rem; line-height: 1.5; margin: var(--s4) 0 var(--s5); }
+  .stem:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
+
+  #choices { display: flex; flex-direction: column; gap: var(--s2); }
+  .choice {
+    position: relative;
+    display: flex;
+    gap: .75rem;
+    align-items: flex-start;
+    padding: .7rem .85rem;
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    transition: background var(--t), border-color var(--t);
+  }
+  .choice input { position: absolute; width: 1px; height: 1px; opacity: 0; margin: 0; }
+  .choice .key {
+    flex: 0 0 1.75rem;
+    height: 1.75rem;
+    display: grid;
+    place-items: center;
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    color: var(--muted);
+    font-weight: 600;
+    font-size: .9rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .choice:hover { background: var(--surface-2); }
+  .choice.is-on { background: var(--brand-soft); border-color: var(--brand); }
+  .choice.is-on .key { background: var(--brand); color: var(--on-brand); }
+  .choice:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  .choice-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s3);
+    align-items: baseline;
+    justify-content: space-between;
+  }
+  #pick-count { margin: 0; }
+  #key-help { margin: var(--s4) 0 0; }
+
+  /* Palette. Kept as a wrapping row — restructuring it was declined. */
+  .palette { display: flex; flex-wrap: wrap; gap: .35rem; margin: var(--s5) 0; }
+  .palette button {
+    position: relative;
+    min-width: 2.25rem;
+    padding: .3rem 0;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    color: var(--muted);
+    font: inherit;
+    font-size: .9rem;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+  }
+  .palette button.answered { background: var(--brand-soft); border-color: var(--brand); color: var(--brand); }
+  .palette button.current { outline: 2px solid var(--focus); outline-offset: 1px; color: var(--ink); font-weight: 700; }
+  .palette button.flagged::after {
+    content: "";
+    position: absolute;
+    top: 2px; right: 2px;
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--brand);
+  }
+
+  /* ------------------------------------------------------------ home cards */
+
+  .stat-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--s3);
+    margin: var(--s5) 0;
+  }
+  .stat {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    box-shadow: var(--shadow);
+    padding: .85rem var(--s4);
+  }
+  .stat-label { color: var(--muted); font-size: .8rem; }
+  .stat-value {
+    font-size: 1.5rem;
+    line-height: 1.1;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  @media (max-width: 34rem) {
+    .stat-row { grid-template-columns: 1fr; }
+  }
+
+  .resume-line { color: var(--muted); font-size: .9rem; margin: 0; }
+
+  /* -------------------------------------------------------------- results */
+
+  .result-row { border-top: 1px solid var(--line); padding: var(--s4) 0; }
+  .verdict { font-weight: 700; margin: 0; }
+  .verdict.ok { color: var(--good); }
+  .verdict.no { color: var(--bad); }
+  .result-choices { margin: var(--s2) 0 0; padding-left: 1.25rem; }
+  .result-choices li { margin: var(--s1) 0; }
+  .result-choices li.right { color: var(--good); }
+  .result-choices li.wrong { color: var(--bad); }
+  .result-choices li.plain { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -686,7 +938,7 @@
         'Default exam: <strong>' + SN.bank.exam.questionCount + ' questions</strong>, ' +
         '<strong>' + SN.bank.exam.durationMinutes + ' minutes</strong>, pass at <strong>' +
         SN.bank.exam.passPercent + '%</strong>.</p>' +
-        '<p><button class="primary" id="go-setup">Start</button></p></div>'
+        '<p><button class="btn btn-primary" id="go-setup">Start</button></p></div>'
       );
       document.getElementById('go-setup').addEventListener('click', function () {
         SN.Router.go('setup');
@@ -760,10 +1012,10 @@
         '<div id="choices">' + choices + '</div>' +
         '<div class="palette">' + palette + '</div>' +
         '<div class="row">' +
-        '<button id="prev"' + (i === 0 ? ' disabled' : '') + '>Previous</button>' +
-        '<button id="next"' + (i === st.ids.length - 1 ? ' disabled' : '') + '>Next</button>' +
-        '<button id="flag">' + (SN.ExamSession.isFlagged(id) ? 'Unflag' : 'Flag') + '</button>' +
-        '<button class="primary" id="submit">Submit exam</button>' +
+        '<button class="btn" id="prev"' + (i === 0 ? ' disabled' : '') + '>Previous</button>' +
+        '<button class="btn" id="next"' + (i === st.ids.length - 1 ? ' disabled' : '') + '>Next</button>' +
+        '<button class="btn" id="flag">' + (SN.ExamSession.isFlagged(id) ? 'Unflag' : 'Flag') + '</button>' +
+        '<button class="btn btn-primary" id="submit">Submit exam</button>' +
         '</div>'
       );
 
@@ -813,8 +1065,8 @@
           ? '<p><strong>' + unanswered + ' unanswered</strong> will be scored as incorrect.</p>'
           : '') +
         '<div class="row" style="justify-content:flex-end">' +
-        '<button id="dlg-no">Keep going</button>' +
-        '<button class="primary" id="dlg-yes">Submit</button></div>';
+        '<button class="btn" id="dlg-no">Keep going</button>' +
+        '<button class="btn btn-primary" id="dlg-yes">Submit</button></div>';
       dlg.showModal();
       dlg.querySelector('#dlg-no').addEventListener('click', function () { dlg.close(); });
       dlg.querySelector('#dlg-yes').addEventListener('click', function () {
@@ -844,9 +1096,9 @@
         r.passPercent + '%</span></p>' +
         '<p>' + r.correct + ' correct of ' + r.total + ' &middot; ' +
         r.incorrect + ' incorrect &middot; ' + r.unanswered + ' unanswered</p>' +
-        '<div class="row"><button class="primary" id="again">Same settings</button>' +
-        '<button id="new-setup">Change settings</button>' +
-        '<button id="leave">Done</button></div></div>';
+        '<div class="row"><button class="btn btn-primary" id="again">Same settings</button>' +
+        '<button class="btn" id="new-setup">Change settings</button>' +
+        '<button class="btn" id="leave">Done</button></div></div>';
 
       var filter = SN.view.reviewFilter || 'all';
       var rows = r.rows.filter(function (row) {
@@ -876,8 +1128,8 @@
         '<div class="row" style="margin:1.5rem 0 1rem">' +
         '<strong>Review</strong>' +
         [['all', 'All'], ['wrong', 'Incorrect'], ['flagged', 'Flagged']].map(function (f) {
-          return '<button data-f="' + f[0] + '"' +
-            (filter === f[0] ? ' class="primary"' : '') + '>' + f[1] + '</button>';
+          return '<button class="btn' + (filter === f[0] ? ' btn-primary' : '') +
+            '" data-f="' + f[0] + '">' + f[1] + '</button>';
         }).join('') + '</div>' +
         (body || '<p class="hint">Nothing in this filter.</p>')
       );
@@ -933,7 +1185,7 @@
         '<div class="card"><p>' + rows.length + ' distinct questions seen, ' +
         answered + ' answers, ' + right + ' correct (' +
         (answered ? Math.round(right / answered * 100) : 0) + '%).</p>' +
-        '<button id="clear-stats">Clear stats</button></div>' +
+        '<button class="btn" id="clear-stats">Clear stats</button></div>' +
         '<h2>Weakest first</h2><table><thead><tr><th>Question</th><th>Seen</th>' +
         '<th>Correct</th><th>Accuracy</th></tr></thead><tbody>' +
         rows.slice(0, 25).map(function (r) {
@@ -968,8 +1220,8 @@
         '<input type="checkbox" id="f-shuffle"' + (s.shuffle ? ' checked' : '') + '> Shuffle questions</label>' +
         '</div>' +
         '<p class="row" style="margin-top:1.25rem">' +
-        '<button class="primary" id="start">Begin</button> ' +
-        '<button id="cancel">Cancel</button></p>'
+        '<button class="btn btn-primary" id="start">Begin</button> ' +
+        '<button class="btn" id="cancel">Cancel</button></p>'
       );
 
       document.getElementById('cancel').addEventListener('click', function () {

@@ -462,7 +462,21 @@ node tools/validate.js /tmp/bad.json; echo "exit=$?"
 rm /tmp/bad.json
 ```
 
-Expected: five problems reported, including `unknown key "correct_choice"`, `"Z" is not among the choices`, `duplicate id`, `unknown key "texts"`, and the multi-select count error. `exit=1`.
+Expected: six problems and `exit=1`:
+
+```
+FAIL  /tmp/bad.json: 6 problems
+  questions[0]: unknown key "correct_choice"
+  questions[1].correct[0]: "Z" is not among the choices
+  questions[1].correct: multi questions need 2 or more, got 1
+  questions[3].id: duplicate id "q-004"
+  questions[4].choices[0]: unknown key "texts"
+  questions[5].correct: multi questions need 2 or more, got 1
+```
+
+Six rather than five because `questions[1]` is a multi whose only correct entry
+was replaced with `"Z"`, so it is genuinely both an unknown letter and a
+multi-select with too few correct answers. Both are true violations.
 
 If the exit code is 0 the validator is not doing its job.
 

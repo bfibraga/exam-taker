@@ -812,6 +812,14 @@
       persist();
     }
 
+    // Deliberately not submit(): an abandoned attempt is dropped without being
+    // scored, without reaching history and without touching stats.
+    function discard() {
+      stopTimer();
+      state = null;
+      SN.Store.drop(KEY);
+    }
+
     return {
       start: start, restore: restore, has: has, get: get,
       index: index, setIndex: setIndex,
@@ -819,7 +827,7 @@
       picksFor: picksFor, isFlagged: isFlagged, toggleFlag: toggleFlag,
       answerCount: answerCount, flagCount: flagCount,
       remainingMs: remainingMs, setPick: setPick,
-      startTimer: startTimer, stopTimer: stopTimer, submit: submit
+      startTimer: startTimer, stopTimer: stopTimer, submit: submit, discard: discard
     };
   })();
 
@@ -956,12 +964,32 @@
       });
     }
 
+    // opts.body is HTML because callers need live counts in it, so every caller
+    // must build it from escaped values. The other fields are escaped here.
+    function confirm(opts, onYes) {
+      var dlg = document.getElementById('dlg');
+      dlg.innerHTML =
+        '<h2>' + escape(opts.title) + '</h2>' +
+        (opts.body || '') +
+        '<div class="row row-end">' +
+        '<button class="btn" id="dlg-no">' + escape(opts.no || 'Cancel') + '</button>' +
+        '<button class="btn btn-primary" id="dlg-yes">' + escape(opts.yes || 'Confirm') +
+        '</button></div>';
+      dlg.showModal();
+      dlg.querySelector('#dlg-no').addEventListener('click', function () { dlg.close(); });
+      dlg.querySelector('#dlg-yes').addEventListener('click', function () {
+        dlg.close();
+        onYes();
+      });
+    }
+
     return {
       init: function () { main = document.getElementById('main'); },
       render: render,
       warn: warn,
       clearWarn: clearWarn,
-      escape: escape
+      escape: escape,
+      confirm: confirm
     };
   })();
 
@@ -994,9 +1022,10 @@
       fn(r.arg);
       // Repainted here, not only on the timer tick, so the clock and the exam
       // bar reflect the route that just rendered without waiting a second.
-      // The typeof guard keeps this working before Task 7 defines syncExamBar.
+      // syncExamBar ends with paintClock, so this covers both. The typeof guard
+      // covers a route that runs before the declaration is reached.
       if (typeof syncExamBar === 'function') syncExamBar();
-      paintClock();
+      else paintClock();
       var links = document.querySelectorAll('#nav a');
       for (var i = 0; i < links.length; i++) {
         var on = links[i].getAttribute('href') === '#/' + r.name;
@@ -1064,6 +1093,38 @@
     if (!mark) lastMark = null;
   }
 
+  // -------------------------------------------------------------- Exam bar
+
+  function syncExamBar() {
+    var bar = document.getElementById('exambar');
+    // On the exam screen the header already shows the position and the clock,
+    // so the bar would be a duplicate.
+    var live = SN.ExamSession.has() && SN.Router.current() !== 'exam';
+    bar.hidden = !live;
+    if (live) {
+      var st = SN.ExamSession.get();
+      document.getElementById('exambar-text').innerHTML =
+        'Attempt in progress &middot; Question ' + (SN.ExamSession.index() + 1) +
+        ' of ' + st.ids.length;
+    }
+    paintClock();
+  }
+
+  // Wired to the home screen's Discard button in Task 8.
+  function discardAttempt() {
+    var st = SN.ExamSession.get();
+    SN.UI.confirm({
+      title: 'Discard this attempt?',
+      body: '<p>Question ' + (SN.ExamSession.index() + 1) + ' of ' + st.ids.length +
+        ', ' + SN.ExamSession.answerCount() + ' answered, ' +
+        SN.ExamSession.flagCount() + ' flagged. Nothing you answered is kept.</p>',
+      yes: 'Discard'
+    }, function () {
+      SN.ExamSession.discard();
+      SN.Router.go('home');
+    });
+  }
+
   // ----------------------------------------------------------------- boot
 
   // SN.view holds transient view state: which question is on screen, the
@@ -1092,8 +1153,17 @@
       if (typeof syncExamBar === 'function') syncExamBar();
     });
 
+    // Emptied on close so stale ids cannot be re-bound by the next dialog.
+    document.getElementById('dlg').addEventListener('close', function () {
+      this.innerHTML = '';
+    });
+
     document.getElementById('keys-close').addEventListener('click', function () {
       document.getElementById('keys-dlg').close();
+    });
+
+    document.getElementById('exambar-resume').addEventListener('click', function () {
+      SN.Router.go('exam');
     });
 
     var nav = document.getElementById('nav');
@@ -1342,21 +1412,16 @@
     function confirmSubmit() {
       var st = SN.ExamSession.get();
       var unanswered = st.ids.length - SN.ExamSession.answerCount();
-      var dlg = document.getElementById('dlg');
-      dlg.innerHTML =
-        '<h2>Submit this attempt?</h2>' +
-        '<p>' + SN.ExamSession.answerCount() + ' of ' + st.ids.length + ' answered. ' +
-        SN.ExamSession.flagCount() + ' flagged.</p>' +
-        (unanswered > 0
-          ? '<p><strong>' + unanswered + ' unanswered</strong> will be scored as incorrect.</p>'
-          : '') +
-        '<div class="row" style="justify-content:flex-end">' +
-        '<button class="btn" id="dlg-no">Keep going</button>' +
-        '<button class="btn btn-primary" id="dlg-yes">Submit</button></div>';
-      dlg.showModal();
-      dlg.querySelector('#dlg-no').addEventListener('click', function () { dlg.close(); });
-      dlg.querySelector('#dlg-yes').addEventListener('click', function () {
-        dlg.close();
+      SN.UI.confirm({
+        title: 'Submit this attempt?',
+        body: '<p>' + SN.ExamSession.answerCount() + ' of ' + st.ids.length +
+          ' answered. ' + SN.ExamSession.flagCount() + ' flagged.</p>' +
+          (unanswered > 0
+            ? '<p><strong>' + unanswered + ' unanswered</strong> will be scored as incorrect.</p>'
+            : ''),
+        no: 'Keep going',
+        yes: 'Submit'
+      }, function () {
         SN.ExamSession.submit(false);
         SN.Router.go('results');
       });
@@ -1484,10 +1549,14 @@
         }).join('') + '</tbody></table>'
       );
       document.getElementById('clear-stats').addEventListener('click', function () {
-        if (window.confirm('Delete all per-question stats? History is kept.')) {
+        SN.UI.confirm({
+          title: 'Delete all per-question stats?',
+          body: '<p>History is kept. This cannot be undone.</p>',
+          yes: 'Delete'
+        }, function () {
           SN.Stats.clear();
           SN.Router.run();
-        }
+        });
       });
     });
 
@@ -1526,9 +1595,27 @@
           passPercent: Math.min(100, Math.max(1,
             parseInt(document.getElementById('f-pass').value, 10) || SN.bank.exam.passPercent))
         };
-        SN.Settings.save(settings);
-        SN.view.pendingSettings = settings;
-        SN.Router.go('exam');
+
+        if (!SN.ExamSession.has()) {
+          SN.Settings.save(settings);
+          SN.view.pendingSettings = settings;
+          SN.Router.go('exam');
+          return;
+        }
+
+        var st = SN.ExamSession.get();
+        SN.UI.confirm({
+          title: 'Replace the attempt in progress?',
+          body: '<p>There is an attempt running at question ' + (SN.ExamSession.index() + 1) +
+            ' of ' + st.ids.length + ' with ' + SN.ExamSession.answerCount() +
+            ' answered. Starting a new one discards it.</p>',
+          yes: 'Discard and start'
+        }, function () {
+          SN.ExamSession.discard();
+          SN.Settings.save(settings);
+          SN.view.pendingSettings = settings;
+          SN.Router.go('exam');
+        });
       });
     });
 

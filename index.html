@@ -121,6 +121,8 @@
   <span id="footer-note"></span>
 </footer>
 
+<dialog id="dlg"></dialog>
+
 <!-- Present at all times: on file:// the fetch below fails and SN.Loader
      reads window.QUESTIONS instead. Over HTTP it loads harmlessly and is
      never consulted. -->
@@ -293,6 +295,153 @@
     return { get: get, all: all, count: count, draw: draw };
   })();
 
+  // ---------------------------------------------------------- ExamSession
+
+  SN.ExamSession = (function () {
+    var KEY = 'exam.active.v1';
+    var state = null;
+    var timerHandle = null;
+    var onTick = null;
+
+    function blank() {
+      return { ids: [], picks: {}, flags: {}, startedAt: null, deadlineAt: null, settings: null };
+    }
+
+    function persist() { if (state) SN.Store.setJSON(KEY, state); }
+
+    function start(settings) {
+      var now = Date.now();
+      state = {
+        ids: SN.Questions.draw(settings.questionCount, settings.shuffle),
+        picks: {},
+        flags: {},
+        startedAt: now,
+        deadlineAt: now + settings.durationMinutes * 60000,
+        settings: settings
+      };
+      persist();
+    }
+
+    function restore() {
+      var saved = SN.Store.getJSON(KEY);
+      if (!saved || !Array.isArray(saved.ids) || !saved.ids.length) return false;
+      var missing = saved.ids.filter(function (id) { return !SN.Questions.get(id); });
+      if (missing.length) {
+        // The bank changed underneath us. Drop it rather than render holes.
+        SN.Store.drop(KEY);
+        return false;
+      }
+      state = saved;
+      return true;
+    }
+
+    function has() { return !!state; }
+    function get() { return state; }
+
+    function index() { return SN.view.index; }
+
+    function setIndex(i) {
+      var max = state.ids.length - 1;
+      SN.view.index = Math.min(max, Math.max(0, i));
+    }
+
+    function currentId() { return state.ids[SN.view.index]; }
+    function currentQuestion() { return SN.Questions.get(currentId()); }
+
+    function picksFor(id) { return state.picks[id] || []; }
+    function isFlagged(id) { return !!state.flags[id]; }
+
+    function toggleFlag(id) {
+      if (state.flags[id]) delete state.flags[id];
+      else state.flags[id] = true;
+      persist();
+    }
+
+    function answerCount() {
+      return state.ids.filter(function (id) {
+        return (state.picks[id] || []).length > 0;
+      }).length;
+    }
+
+    function flagCount() {
+      return state.ids.filter(function (id) { return state.flags[id]; }).length;
+    }
+
+    function remainingMs() {
+      if (!state || !state.deadlineAt) return Infinity;
+      return Math.max(0, state.deadlineAt - Date.now());
+    }
+
+    function submit(expired) {
+      stopTimer();
+      var result = SN.Scorer.score(state);
+      result.expired = !!expired;
+      result.durationMinutes = state.settings.durationMinutes;
+      result.passPercent = state.settings.passPercent;
+      SN.Store.drop(KEY);
+      SN.Stats.record(result);
+      SN.History.add(result);
+      SN.lastResult = result;
+      state = null;
+      return result;
+    }
+
+    function startTimer(fn) {
+      onTick = fn;
+      stopTimer();
+      timerHandle = setInterval(function () {
+        if (onTick) onTick();
+        if (remainingMs() <= 0) {
+          stopTimer();
+          if (state) {
+            submit(true);
+            SN.Router.go('results', 'expired');
+          }
+        }
+      }, 1000);
+    }
+
+    function stopTimer() {
+      if (timerHandle) { clearInterval(timerHandle); timerHandle = null; }
+      onTick = null;
+    }
+
+    function setPick(id, letter) {
+      var q = SN.Questions.get(id);
+      if (!q) return;
+      var cur = picksFor(id).slice();
+      var at = cur.indexOf(letter);
+      if (q.type === 'single') {
+        cur = [letter];
+      } else if (at === -1) {
+        // Multi-select stops at the required count, which is what "Choose 3"
+        // means. Unchecking first is the only way to swap a choice.
+        if (cur.length >= q.correct.length) return;
+        cur.push(letter);
+      } else {
+        cur.splice(at, 1);
+      }
+      // Keep picks in choice order so stored state is deterministic.
+      // Scoring is order-insensitive; this is only about predictability.
+      cur.sort(function (x, y) {
+        return q.choices.findIndex(function (c) { return c.id === x; }) -
+               q.choices.findIndex(function (c) { return c.id === y; });
+      });
+      state.picks[id] = cur;
+      persist();
+    }
+
+    return {
+      start: start, restore: restore, has: has, get: get,
+      index: index, setIndex: setIndex,
+      currentId: currentId, currentQuestion: currentQuestion,
+      picksFor: picksFor, isFlagged: isFlagged, toggleFlag: toggleFlag,
+      answerCount: answerCount, flagCount: flagCount,
+      remainingMs: remainingMs, setPick: setPick,
+      startTimer: startTimer, stopTimer: stopTimer, submit: submit
+    };
+  })();
+
   // ------------------------------------------------------------------ UI
 
   SN.UI = (function () {
@@ -414,6 +563,137 @@
         SN.Router.go('setup');
       });
     });
+
+    SN.Router.add('exam', function () {
+      // Set up by the setup screen.
+      if (SN.view.pendingSettings) {
+        SN.ExamSession.start(SN.view.pendingSettings);
+        SN.view.pendingSettings = null;
+        SN.view.index = 0;
+      }
+      if (!SN.ExamSession.has() && !SN.ExamSession.restore()) {
+        SN.Router.go('setup');
+        return;
+      }
+      SN.UI.clearWarn();
+      drawQuestion();
+      SN.ExamSession.startTimer(paintTimer);
+    });
+
+    function fmtMs(ms) {
+      var s = Math.floor(ms / 1000);
+      var m = Math.floor(s / 60);
+      return m + ':' + String(s % 60).padStart(2, '0');
+    }
+
+    function paintTimer() {
+      var el = document.getElementById('timer');
+      var ms = SN.ExamSession.remainingMs();
+      el.hidden = false;
+      el.textContent = fmtMs(ms);
+      el.className = ms <= 60000 ? 'urgent' : '';
+    }
+
+    function drawQuestion() {
+      var st = SN.ExamSession.get();
+      var i = SN.ExamSession.index();
+      var id = SN.ExamSession.currentId();
+      var q = SN.ExamSession.currentQuestion();
+      var picked = SN.ExamSession.picksFor(id);
+      var multi = q.type === 'multi';
+
+      var choices = q.choices.map(function (c) {
+        var on = picked.indexOf(c.id) !== -1;
+        return '<label class="choice"><input type="' + (multi ? 'checkbox' : 'radio') +
+          '" name="pick" value="' + c.id + '"' + (on ? ' checked' : '') + '> ' +
+          '<span>' + SN.UI.escape(c.text) + '</span></label>';
+      }).join('');
+
+      var palette = st.ids.map(function (qid, idx) {
+        var cls = [];
+        if (idx === i) cls.push('current');
+        if ((st.picks[qid] || []).length) cls.push('answered');
+        if (st.flags[qid]) cls.push('flagged');
+        var label = 'Question ' + (idx + 1) +
+          ((st.picks[qid] || []).length ? ', answered' : ', not answered') +
+          (st.flags[qid] ? ', flagged' : '');
+        return '<button class="' + cls.join(' ') + '" data-i="' + idx +
+          '" aria-label="' + label + '">' + (idx + 1) + '</button>';
+      }).join('');
+
+      SN.UI.render(
+        '<h2>' + SN.UI.escape(SN.bank.exam.title) + '</h2>' +
+        '<p class="hint">Question ' + (i + 1) + ' of ' + st.ids.length + ' &middot; ' +
+        SN.ExamSession.answerCount() + ' answered &middot; ' +
+        SN.ExamSession.flagCount() + ' flagged' +
+        (multi ? ' &middot; choose ' + q.correct.length : '') + '</p>' +
+        '<div class="stem">' + SN.UI.escape(q.stem) + '</div>' +
+        '<div id="choices">' + choices + '</div>' +
+        '<div class="palette">' + palette + '</div>' +
+        '<div class="row">' +
+        '<button id="prev"' + (i === 0 ? ' disabled' : '') + '>Previous</button>' +
+        '<button id="next"' + (i === st.ids.length - 1 ? ' disabled' : '') + '>Next</button>' +
+        '<button id="flag">' + (SN.ExamSession.isFlagged(id) ? 'Unflag' : 'Flag') + '</button>' +
+        '<button class="primary" id="submit">Submit exam</button>' +
+        '</div>'
+      );
+
+      Array.prototype.forEach.call(
+        document.querySelectorAll('#choices input'),
+        function (input) {
+          input.addEventListener('change', function () {
+            SN.ExamSession.setPick(id, input.value);
+            drawQuestion();
+          });
+        }
+      );
+
+      Array.prototype.forEach.call(
+        document.querySelectorAll('.palette button'),
+        function (b) {
+          b.addEventListener('click', function () {
+            SN.ExamSession.setIndex(parseInt(b.getAttribute('data-i'), 10));
+            drawQuestion();
+          });
+        }
+      );
+
+      document.getElementById('prev').addEventListener('click', function () {
+        SN.ExamSession.setIndex(i - 1); drawQuestion();
+      });
+      document.getElementById('next').addEventListener('click', function () {
+        SN.ExamSession.setIndex(i + 1); drawQuestion();
+      });
+      document.getElementById('flag').addEventListener('click', function () {
+        SN.ExamSession.toggleFlag(id); drawQuestion();
+      });
+      document.getElementById('submit').addEventListener('click', confirmSubmit);
+
+      paintTimer();
+    }
+
+    function confirmSubmit() {
+      var st = SN.ExamSession.get();
+      var unanswered = st.ids.length - SN.ExamSession.answerCount();
+      var dlg = document.getElementById('dlg');
+      dlg.innerHTML =
+        '<h2>Submit this attempt?</h2>' +
+        '<p>' + SN.ExamSession.answerCount() + ' of ' + st.ids.length + ' answered. ' +
+        SN.ExamSession.flagCount() + ' flagged.</p>' +
+        (unanswered > 0
+          ? '<p><strong>' + unanswered + ' unanswered</strong> will be scored as incorrect.</p>'
+          : '') +
+        '<div class="row" style="justify-content:flex-end">' +
+        '<button id="dlg-no">Keep going</button>' +
+        '<button class="primary" id="dlg-yes">Submit</button></div>';
+      dlg.showModal();
+      dlg.querySelector('#dlg-no').addEventListener('click', function () { dlg.close(); });
+      dlg.querySelector('#dlg-yes').addEventListener('click', function () {
+        dlg.close();
+        SN.ExamSession.submit(false);
+        SN.Router.go('results');
+      });
+    }
 
     SN.Router.add('setup', function () {
       var s = SN.Settings.load();

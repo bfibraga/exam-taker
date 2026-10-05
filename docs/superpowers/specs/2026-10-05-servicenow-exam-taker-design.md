@@ -133,8 +133,12 @@ The ServiceNow Employee Center portal returns the bank inside a bootstrap
 response, at:
 
 ```
-result.data.containers[0].rows[0].columns[0].widgets[1].widget.data.questions
+result.containers[0].rows[0].columns[0].widgets[1].widget.data.questions
 ```
+
+There is no `data` level between `result` and `containers`; `result` holds
+`containers` directly. Verified against `questions-response.json`, which also
+carries `examId` and `isReview` as siblings of `questions`.
 
 Each entry in that array is:
 
@@ -153,10 +157,21 @@ Each entry in that array is:
 
 `tools/convert.js` reads a saved payload file, walks to the array above, and
 emits both `questions.json` and its `questions.js` wrapper. Mapping: `sys_id` →
-generated `id`,
-`single_choice` → `type`, `text` → `stem`, `answers[]` → `choices[]` in source
-order with ids assigned `A`, `B`, `C`, …, and every answer with `correct: true`
-→ its letter in `correct`.
+generated `id` (`q-001`, `q-002`, … by position, not derived from the sys_id so
+ids stay short and stable across re-conversions), `single_choice` → `type`,
+`text` → `stem`, `answers[]` → `choices[]` in source order with ids assigned
+`A`, `B`, `C`, …, and every answer with `correct: true` → its letter in
+`correct`.
+
+`correct_count` is read and cross-checked against the number of `correct: true`
+answers, not carried into the output. A mismatch is a converter error rather
+than something to encode, since the output derives the required selection count
+from `correct.length`.
+
+The verified bank: 423 questions, 341 single and 82 multi, with
+`correct_count` distributed 1×341, 2×29, 3×35, 4×16, 5×2, and answer counts from
+3 to 11. No duplicate sys_ids, no duplicate stems, no question with zero correct
+answers.
 
 The converter reads only that array, so the portal payload's user email,
 federated id, session token, theme CSS, and internal instance sys_ids never

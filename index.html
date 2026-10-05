@@ -576,7 +576,7 @@
     var onTick = null;
 
     function blank() {
-      return { ids: [], picks: {}, flags: {}, startedAt: null, deadlineAt: null, settings: null };
+      return { ids: [], index: 0, picks: {}, flags: {}, startedAt: null, deadlineAt: null, settings: null };
     }
 
     function persist() { if (state) SN.Store.setJSON(KEY, state); }
@@ -585,6 +585,7 @@
       var now = Date.now();
       state = {
         ids: SN.Questions.draw(settings.questionCount, settings.shuffle),
+        index: 0,
         picks: {},
         flags: {},
         startedAt: now,
@@ -603,6 +604,10 @@
         SN.Store.drop(KEY);
         return false;
       }
+      // Sessions written before the position was persisted have no index, and a
+      // bank that shrank could leave a stale one past the end.
+      var at = typeof saved.index === 'number' ? saved.index : 0;
+      saved.index = Math.min(saved.ids.length - 1, Math.max(0, at));
       state = saved;
       return true;
     }
@@ -610,14 +615,16 @@
     function has() { return !!state; }
     function get() { return state; }
 
-    function index() { return SN.view.index; }
+    function index() { return state ? state.index : 0; }
 
     function setIndex(i) {
+      if (!state) return;
       var max = state.ids.length - 1;
-      SN.view.index = Math.min(max, Math.max(0, i));
+      state.index = Math.min(max, Math.max(0, i));
+      persist();
     }
 
-    function currentId() { return state.ids[SN.view.index]; }
+    function currentId() { return state.ids[index()]; }
     function currentQuestion() { return SN.Questions.get(currentId()); }
 
     function picksFor(id) { return state.picks[id] || []; }
@@ -910,7 +917,7 @@
 
   // SN.view holds transient view state: which question is on screen, the
   // settings a fresh exam is about to start with, and the review filter.
-  SN.view = { index: 0, pendingSettings: null, reviewFilter: 'all' };
+  SN.view = { pendingSettings: null, reviewFilter: 'all' };
 
   SN.UI.init();
 
@@ -950,7 +957,6 @@
       if (SN.view.pendingSettings) {
         SN.ExamSession.start(SN.view.pendingSettings);
         SN.view.pendingSettings = null;
-        SN.view.index = 0;
       }
       if (!SN.ExamSession.has() && !SN.ExamSession.restore()) {
         SN.Router.go('setup');
@@ -1242,6 +1248,12 @@
         SN.Router.go('exam');
       });
     });
+
+    // Boot order matters. SN.bank first, because SN.Questions indexes lazily on
+    // first get() (AGENTS.md rule 4). Restore before any route renders, so home
+    // and the exam bar both know about a live attempt. Timer last, so it starts
+    // exactly once. SN.Router.start() renders.
+    SN.ExamSession.restore();
 
     SN.Router.start();
   }).catch(function (err) {

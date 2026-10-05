@@ -181,6 +181,7 @@
   /* ------------------------------------------------------------- controls */
 
   label { display: block; margin: var(--s4) 0 var(--s1); font-weight: 600; }
+  label.inline { display: inline-flex; align-items: center; gap: var(--s2); margin: 0; font-weight: 400; }
   input[type=number], input[type=text], select {
     font: inherit;
     padding: .45rem .55rem;
@@ -210,6 +211,8 @@
 
   .row { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
   .row-end { justify-content: flex-end; margin-top: var(--s5); }
+  .row-spaced { margin-top: var(--s4); }
+  .row-cta { margin-top: var(--s5); }
 
   /* --------------------------------------------------------------- pieces */
 
@@ -223,6 +226,9 @@
   }
   .card > :first-child { margin-top: 0; }
   .card > :last-child { margin-bottom: 0; }
+  .card.expired { background: var(--bad-bg); color: var(--bad); border-color: transparent; }
+  /* A bank error is one long line that has to wrap inside the card. */
+  pre.card { white-space: pre-wrap; margin: var(--s4) 0 0; }
 
   .pill { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .8rem; }
   .pill.ok { background: var(--good-bg); color: var(--good); }
@@ -354,6 +360,9 @@
   .resume-line { color: var(--muted); font-size: .9rem; margin: 0; }
 
   /* -------------------------------------------------------------- results */
+
+  .score-big { font-size: 1.6rem; margin: .2rem 0; }
+  .review-filters { margin: var(--s5) 0 var(--s4); align-items: baseline; }
 
   .result-row { border-top: 1px solid var(--line); padding: var(--s4) 0; }
   .verdict { font-weight: 700; margin: 0; }
@@ -1256,8 +1265,8 @@
         SN.bank.exam.durationMinutes + ' minutes &middot; pass at ' +
         SN.bank.exam.passPercent + '%</p>' +
         stats + resume +
-        '<p class="row row-end"><button class="btn btn-primary" id="go-setup">' +
-        'Start a new attempt</button></p>'
+        '<div class="row row-end"><button class="btn btn-primary" id="go-setup">' +
+        'Start a new attempt</button></div>'
       );
 
       document.getElementById('go-setup').addEventListener('click', function () {
@@ -1529,16 +1538,16 @@
       var pct = r.percent.toFixed(1);
 
       var head = (arg === 'expired'
-        ? '<div class="card" style="background:var(--bad-bg);color:var(--bad)">' +
+        ? '<div class="card expired">' +
           '<strong>Time expired.</strong> This attempt was submitted automatically.</div>'
         : '') +
         '<h2 data-autofocus>' + (passed ? 'Passed' : 'Not passed') + '</h2>' +
-        '<div class="card"><p style="font-size:1.6rem;margin:.2rem 0"><strong>' + pct +
+        '<div class="card"><p class="score-big"><strong>' + pct +
         '%</strong> <span class="pill ' + (passed ? 'ok' : 'no') + '">pass mark ' +
         r.passPercent + '%</span></p>' +
         '<p>' + r.correct + ' correct of ' + r.total + ' &middot; ' +
         r.incorrect + ' incorrect &middot; ' + r.unanswered + ' unanswered</p>' +
-        '<div class="row"><button class="btn btn-primary" id="again">Same settings</button>' +
+        '<div class="row row-spaced"><button class="btn btn-primary" id="again">Same settings</button>' +
         '<button class="btn" id="new-setup">Change settings</button>' +
         '<button class="btn" id="leave">Done</button></div></div>';
 
@@ -1553,21 +1562,22 @@
         var choices = row.choices.map(function (c) {
           var picked = row.picked.indexOf(c.id) !== -1;
           var right = row.correct.indexOf(c.id) !== -1;
+          var cls = right ? 'right' : (picked ? 'wrong' : 'plain');
           var mark = right ? ' &#10003;' : (picked ? ' &#10007;' : '');
-          return '<li>' + SN.UI.escape(c.text) + mark +
-            (right ? ' <span class="hint">(correct)</span>' : '') +
-            (picked && !right ? ' <span class="hint">(you picked this)</span>' : '') + '</li>';
+          var tag = right ? ' (correct)' : (picked ? ' (you picked this)' : '');
+          return '<li class="' + cls + '">' + SN.UI.escape(c.text) + mark +
+            '<span class="hint">' + tag + '</span></li>';
         }).join('');
 
         return '<div class="result-row">' +
           '<p class="verdict ' + (row.isCorrect ? 'ok' : 'no') + '">' +
           (row.isCorrect ? 'Correct' : 'Incorrect') + '</p>' +
           '<p>' + SN.UI.escape(row.stem) + '</p>' +
-          '<ul>' + choices + '</ul></div>';
+          '<ul class="result-choices">' + choices + '</ul></div>';
       }).join('');
 
       SN.UI.render(head +
-        '<div class="row" style="margin:1.5rem 0 1rem">' +
+        '<div class="row review-filters">' +
         '<strong>Review</strong>' +
         [['all', 'All'], ['wrong', 'Incorrect'], ['flagged', 'Flagged']].map(function (f) {
           return '<button class="btn' + (filter === f[0] ? ' btn-primary' : '') +
@@ -1664,13 +1674,13 @@
         '<p class="hint" id="pace-hint"></p>' +
         '<label for="f-pass">Pass mark (%)</label>' +
         '<input type="number" id="f-pass" min="1" max="100" value="' + s.passPercent + '">' +
-        '<div class="row" style="margin-top:1rem">' +
-        '<label style="font-weight:400;margin:0">' +
+        '<div class="row row-spaced">' +
+        '<label class="inline">' +
         '<input type="checkbox" id="f-shuffle"' + (s.shuffle ? ' checked' : '') + '> Shuffle questions</label>' +
         '</div>' +
-        '<p class="row" style="margin-top:1.25rem">' +
+        '<div class="row row-cta">' +
         '<button class="btn btn-primary" id="start">Begin</button> ' +
-        '<button class="btn" id="cancel">Cancel</button></p>'
+        '<button class="btn" id="cancel">Cancel</button></div>'
       );
 
       document.getElementById('cancel').addEventListener('click', function () {
@@ -1738,7 +1748,7 @@
 
     SN.Router.start();
   }).catch(function (err) {
-    SN.UI.render('<h2>Question bank unavailable</h2><pre style="white-space:pre-wrap">' +
+    SN.UI.render('<h2 data-autofocus>Question bank unavailable</h2><pre class="card">' +
                 SN.UI.escape(err.message) + '</pre>');
   });
 

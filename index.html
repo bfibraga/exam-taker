@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exam Runner</title>
+<style>
+  :root {
+    --ink: #10171a;
+    --muted: #4f5c62;
+    --line: #d9d9d9;
+    --bg: #ffffff;
+    --panel: #f5f6f7;
+    --brand: #004f65;
+    --good: #1c6b3c;
+    --good-bg: #e4f2ea;
+    --bad: #a4262c;
+    --bad-bg: #fbeaeb;
+    --warn-bg: #fdf3d8;
+    --warn-ink: #6b5310;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+  }
+  header {
+    border-bottom: 1px solid var(--line);
+    padding: 1rem 1.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: baseline;
+  }
+  header h1 { font-size: 1.2rem; margin: 0; }
+  nav { display: flex; gap: 1rem; flex-wrap: wrap; }
+  nav a { color: var(--muted); text-decoration: none; padding: .2rem 0; }
+  nav a.active { color: var(--brand); border-bottom: 2px solid var(--brand); font-weight: 600; }
+  #timer {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  #timer.urgent { color: var(--bad); }
+  main { max-width: 46rem; margin: 0 auto; padding: 1.5rem; }
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 1rem 1.5rem;
+    color: var(--muted);
+    font-size: .85rem;
+  }
+  h2 { font-size: 1.1rem; margin-top: 0; }
+  label { display: block; margin: .9rem 0 .25rem; font-weight: 600; }
+  input[type=number], input[type=text], select {
+    font: inherit;
+    padding: .45rem .55rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    min-width: 8rem;
+  }
+  .hint { color: var(--muted); font-size: .85rem; margin: .2rem 0 0; }
+  button {
+    font: inherit;
+    padding: .5rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--panel);
+    cursor: pointer;
+  }
+  button.primary { background: var(--brand); color: #fff; border-color: var(--brand); }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 1rem;
+    margin: 1rem 0;
+  }
+  #notice { display: none; margin: 0; padding: .7rem 1.5rem; background: var(--warn-bg); color: var(--warn-ink); }
+  #notice.show { display: block; }
+  .stem { font-size: 1.05rem; margin-bottom: 1rem; }
+  .choice { display: flex; gap: .6rem; align-items: flex-start; padding: .5rem; border-radius: 4px; }
+  .choice:hover { background: var(--panel); }
+  .palette { display: flex; flex-wrap: wrap; gap: .35rem; margin: 1.25rem 0; }
+  .palette button { min-width: 2.3rem; padding: .35rem; font-variant-numeric: tabular-nums; }
+  .palette button.current { outline: 2px solid var(--brand); outline-offset: 1px; font-weight: 700; }
+  .palette button.answered { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .palette button.flagged { border-color: var(--brand); border-width: 2px; }
+  .result-row { border-top: 1px solid var(--line); padding: .9rem 0; }
+  .verdict { font-weight: 700; }
+  .verdict.ok { color: var(--good); }
+  .verdict.no { color: var(--bad); }
+  .pill { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .8rem; }
+  .pill.ok { background: var(--good-bg); color: var(--good); }
+  .pill.no { background: var(--bad-bg); color: var(--bad); }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: .5rem; border-bottom: 1px solid var(--line); }
+  dialog { border: 1px solid var(--line); border-radius: 8px; padding: 1.25rem; max-width: 26rem; }
+  dialog::backdrop { background: rgba(16,23,26,.35); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1 id="title">Exam Runner</h1>
+  <nav id="nav"></nav>
+  <span id="timer" aria-live="polite" hidden></span>
+</header>
+
+<p id="notice" role="status"></p>
+
+<main id="main">
+  <p>Loading question bank&hellip;</p>
+</main>
+
+<footer>
+  <span id="footer-note"></span>
+</footer>
+
+<!-- Present at all times: on file:// the fetch below fails and SN.Loader
+     reads window.QUESTIONS instead. Over HTTP it loads harmlessly and is
+     never consulted. -->
+<script src="./questions.js"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  var SN = {};
+  window.SN = SN;
+
+  // ---------------------------------------------------------------- Store
+
+  SN.Store = (function () {
+    var PREFIX = 'sn.';
+    var memory = {};
+    var available = (function () {
+      try {
+        var k = PREFIX + '__probe';
+        window.localStorage.setItem(k, '1');
+        window.localStorage.removeItem(k);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    })();
+
+    function read(name) {
+      if (available) {
+        try { return window.localStorage.getItem(PREFIX + name); }
+        catch (e) { return null; }
+      }
+      return Object.prototype.hasOwnProperty.call(memory, name) ? memory[name] : null;
+    }
+
+    function write(name, value) {
+      if (available) {
+        try { window.localStorage.setItem(PREFIX + name, value); return true; }
+        catch (e) { available = false; }
+      }
+      memory[name] = value;
+      return false;
+    }
+
+    function drop(name) {
+      if (available) {
+        try { window.localStorage.removeItem(PREFIX + name); } catch (e) {}
+      }
+      delete memory[name];
+    }
+
+    return {
+      isPersistent: function () { return available; },
+      getJSON: function (name) {
+        var raw = read(name);
+        if (raw === null) return null;
+        try { return JSON.parse(raw); }
+        catch (e) {
+          drop(name);
+          SN.UI.warn('Stored "' + name + '" was unreadable and has been reset.');
+          return null;
+        }
+      },
+      setJSON: function (name, value) { return write(name, JSON.stringify(value)); },
+      drop: drop
+    };
+  })();
+
+  // --------------------------------------------------------------- Loader
+
+  SN.Loader = (function () {
+    var FAILED_JSON = null;
+
+    function viaFetch() {
+      if (typeof window.fetch !== 'function') return Promise.reject(new Error('no fetch'));
+      return window.fetch('./questions.json', { cache: 'no-store' })
+        .then(function (res) {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        });
+    }
+
+    function viaScript() {
+      if (!window.QUESTIONS) throw new Error('questions.js did not load');
+      return window.QUESTIONS;
+    }
+
+    function load() {
+      return viaFetch().catch(function (err) {
+        // file:// blocks fetch; that is expected, not an error to shout about.
+        if (window.location.protocol === 'file:') FAILED_JSON = err;
+        try { return viaScript(); }
+        catch (e2) {
+          throw new Error(
+            'Could not read the question bank.\n\n' +
+            'Tried fetch("./questions.json"): ' + err.message + '\n' +
+            'Tried window.QUESTIONS: ' + e2.message + '\n\n' +
+            'Make sure questions.json and questions.js sit in the same folder ' +
+            'as index.html, then regenerate them with:\n' +
+            '  node tools/convert.js'
+          );
+        }
+      });
+    }
+
+    return { load: load, jsonError: function () { return FAILED_JSON; } };
+  })();
+
+  // ------------------------------------------------------------------ UI
+
+  SN.UI = (function () {
+    var main = null;
+
+    function warn(msg) {
+      var el = document.getElementById('notice');
+      if (!el) return;
+      el.textContent = msg;
+      el.className = 'show';
+    }
+
+    function clearWarn() {
+      var el = document.getElementById('notice');
+      if (el) { el.textContent = ''; el.className = ''; }
+    }
+
+    function render(html) {
+      main.innerHTML = html;
+      window.scrollTo(0, 0);
+    }
+
+    function escape(s) {
+      return String(s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    return {
+      init: function () { main = document.getElementById('main'); },
+      render: render,
+      warn: warn,
+      clearWarn: clearWarn,
+      escape: escape
+    };
+  })();
+
+  // --------------------------------------------------------------- Router
+
+  SN.Router = (function () {
+    var routes = {};
+    var current = '';
+
+    function parse() {
+      var h = window.location.hash.replace(/^#/, '');
+      var slash = h.indexOf('/');
+      return {
+        name: slash === -1 ? (h || 'home') : h.slice(0, slash),
+        arg: slash === -1 ? null : h.slice(slash + 1)
+      };
+    }
+
+    function go(name, arg) {
+      window.location.hash = '#/' + name + (arg ? '/' + arg : '');
+    }
+
+    function run() {
+      var r = parse();
+      current = r.name;
+      var fn = routes[r.name];
+      if (!fn) { SN.UI.render('<h2>Not found</h2><p>No view named "' +
+        SN.UI.escape(r.name) + '".</p>'); return; }
+      fn(r.arg);
+      var links = document.querySelectorAll('#nav a');
+      for (var i = 0; i < links.length; i++) {
+        var on = links[i].getAttribute('href') === '#/' + r.name;
+        links[i].className = on ? 'active' : '';
+        if (on) links[i].setAttribute('aria-current', 'page');
+        else links[i].removeAttribute('aria-current');
+      }
+    }
+
+    return {
+      add: function (name, fn) { routes[name] = fn; },
+      go: go,
+      start: function () {
+        window.addEventListener('hashchange', run);
+        run();
+      },
+      current: function () { return current; }
+    };
+  })();
+
+  // ----------------------------------------------------------------- boot
+
+  SN.UI.init();
+
+  if (!SN.Store.isPersistent()) {
+    SN.UI.warn('This browser is blocking local storage, so nothing will be saved ' +
+               'between visits. The exam still works for this session.');
+  }
+
+  SN.Loader.load().then(function (bank) {
+    SN.bank = bank;
+    document.getElementById('title').textContent = bank.exam.title;
+    document.getElementById('footer-note').textContent =
+      bank.questions.length + ' questions in this bank.';
+
+    var nav = document.getElementById('nav');
+    nav.innerHTML = ['home', 'setup', 'history', 'stats']
+      .map(function (n) {
+        return '<a href="#/' + n + '">' + n.charAt(0).toUpperCase() + n.slice(1) + '</a>';
+      }).join('');
+
+    SN.Router.add('home', function () {
+      SN.UI.render(
+        '<h2>' + SN.UI.escape(SN.bank.exam.title) + '</h2>' +
+        '<div class="card"><p>' + SN.bank.questions.length + ' questions loaded. ' +
+        'Default exam: <strong>' + SN.bank.exam.questionCount + ' questions</strong>, ' +
+        '<strong>' + SN.bank.exam.durationMinutes + ' minutes</strong>, pass at <strong>' +
+        SN.bank.exam.passPercent + '%</strong>.</p>' +
+        '<p><button class="primary" id="go-setup">Start</button></p></div>'
+      );
+      document.getElementById('go-setup').addEventListener('click', function () {
+        SN.Router.go('setup');
+      });
+    });
+
+    SN.Router.start();
+  }).catch(function (err) {
+    SN.UI.render('<h2>Question bank unavailable</h2><pre style="white-space:pre-wrap">' +
+                SN.UI.escape(err.message) + '</pre>');
+  });
+
+})();
+</script>
+</body>
+</html>

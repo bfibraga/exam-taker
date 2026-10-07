@@ -25,6 +25,8 @@
     --bad-bg: #fbeaeb;
     --warn-bg: #fdf3d8;
     --warn-ink: #6b5310;
+    --aqua: #0ea5e9;
+    --aqua-bg: #e8f7fd;
     --shadow: 0 1px 2px rgba(28,31,30,.05), 0 1px 3px rgba(28,31,30,.04);
 
     --r: 10px;
@@ -57,9 +59,11 @@
       --good-bg: #1a2a21;
       --bad: #f08a8e;
       --bad-bg: #2b1d1e;
-      --warn-bg: #2a2416;
-      --warn-ink: #e2c877;
-      --shadow: 0 1px 2px rgba(0,0,0,.4);
+    --warn-bg: #2a2416;
+    --warn-ink: #e2c877;
+    --aqua: #38bdf8;
+    --aqua-bg: #1d2c35;
+    --shadow: 0 1px 2px rgba(0,0,0,.4);
     }
   }
   :root[data-theme="dark"] {
@@ -80,6 +84,8 @@
     --bad-bg: #2b1d1e;
     --warn-bg: #2a2416;
     --warn-ink: #e2c877;
+    --aqua: #38bdf8;
+    --aqua-bg: #1d2c35;
     --shadow: 0 1px 2px rgba(0,0,0,.4);
   }
 
@@ -368,6 +374,17 @@
   .verdict { font-weight: 700; margin: 0; }
   .verdict.ok { color: var(--good); }
   .verdict.no { color: var(--bad); }
+  .verdict.miss { color: var(--aqua); }
+  .verdict.miss::before { content: "\25CB"; margin-right: var(--s2); }
+
+  .result-choices li.miss {
+    background: var(--aqua-bg);
+    border-left: 3px solid var(--aqua);
+    color: var(--aqua);
+  }
+  .result-choices li.miss .hint {
+    color: var(--aqua);
+  }
   .result-choices { margin: var(--s2) 0 0; padding-left: 1.25rem; }
   .result-choices li { margin: var(--s1) 0; }
   .result-choices li.right { color: var(--good); }
@@ -1572,25 +1589,58 @@
 
       var filter = SN.view.reviewFilter || 'all';
       var rows = r.rows.filter(function (row) {
-        if (filter === 'wrong') return !row.isCorrect;
+        if (filter === 'wrong') return !row.isCorrect || row.picked.length === 0;
         if (filter === 'flagged') return row.flagged;
         return true;
       });
 
       var body = rows.map(function (row) {
+        var isMulti = row.type === 'multi';
         var choices = row.choices.map(function (c) {
           var picked = row.picked.indexOf(c.id) !== -1;
           var right = row.correct.indexOf(c.id) !== -1;
-          var cls = right ? 'right' : (picked ? 'wrong' : 'plain');
-          var mark = right ? ' &#10003;' : (picked ? ' &#10007;' : '');
-          var tag = right ? ' (correct)' : (picked ? ' (you picked this)' : '');
+          var cls, mark, tag;
+          if (right && picked) {
+            cls = 'right';
+            mark = ' &#10003;';
+            tag = ' (correct, you picked)';
+          } else if (right && !picked && isMulti) {
+            cls = 'miss';
+            mark = ' &#25CB;';
+            tag = ' (correct, missed)';
+          } else if (right && !picked && !isMulti) {
+            cls = 'right';
+            mark = ' &#10003;';
+            tag = ' (correct)';
+          } else if (picked && !right) {
+            cls = 'wrong';
+            mark = ' &#10007;';
+            tag = ' (you picked this)';
+          } else {
+            cls = 'plain';
+            mark = '';
+            tag = '';
+          }
           return '<li class="' + cls + '">' + SN.UI.escape(c.text) + mark +
-            '<span class="hint">' + tag + '</span></li>';
+            (tag ? '<span class="hint">' + tag + '</span>' : '') + '</li>';
         }).join('');
 
+        var isUnanswered = row.picked.length === 0;
+        var verdictClass = '';
+        var verdictText = '';
+        if (row.isCorrect) {
+          verdictClass = 'ok';
+          verdictText = 'Correct';
+        } else if (isUnanswered) {
+          verdictClass = 'miss';
+          verdictText = 'Unanswered';
+        } else {
+          verdictClass = 'no';
+          verdictText = 'Incorrect';
+        }
+
         return '<div class="result-row">' +
-          '<p class="verdict ' + (row.isCorrect ? 'ok' : 'no') + '">' +
-          (row.isCorrect ? 'Correct' : 'Incorrect') + '</p>' +
+          '<p class="verdict ' + verdictClass + '">' + verdictText + '</p>' +
           '<p>' + SN.UI.escape(row.stem) + '</p>' +
           '<ul class="result-choices">' + choices + '</ul></div>';
       }).join('');
@@ -1598,7 +1648,7 @@
       SN.UI.render(head +
         '<div class="row review-filters">' +
         '<strong>Review</strong>' +
-        [['all', 'All'], ['wrong', 'Incorrect'], ['flagged', 'Flagged']].map(function (f) {
+        [['all', 'All'], ['wrong', 'Incorrect / Unanswered'], ['flagged', 'Flagged']].map(function (f) {
           return '<button class="btn' + (filter === f[0] ? ' btn-primary' : '') +
             '" data-f="' + f[0] + '">' + f[1] + '</button>';
         }).join('') + '</div>' +
